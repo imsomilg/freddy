@@ -41,6 +41,7 @@ class MessageSource(enum.StrEnum):
     FASTPATH = "fastpath"
     CLAUDE = "claude"
     SCHEDULER = "scheduler"
+    BRIDGE = "bridge"
 
 
 class User(Base):

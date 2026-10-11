@@ -8,13 +8,23 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from freddy.assistant.agent import Agent, AgentError
 from freddy.assistant.history import ConversationStore
-from freddy.assistant.prompts import now_line
+from freddy.assistant.prompts import SYSTEM_PROMPT, now_line
 from freddy.assistant.tools import ToolContext
+from freddy.bridge.hub import BridgeFailed, BridgeHub, BridgeOffline, BridgeTimeout
+from freddy.bridge.prompt import build_bridge_prompt
 from freddy.db.models import MessageSource, User
 from freddy.domain.timeutil import utcnow
 from freddy.fastpath.router import try_fastpath
 
 log = structlog.get_logger()
+
+OFFLINE_REPLY = (
+    "My brain's offline right now (laptop's off). I can still do:\n"
+    "`add goal: X`, `goals`, `done X`, `reminders`, `cancel reminder 3`, "
+    "`remind me in 20 min / at 6pm / every weekday at 7:30 to X`"
+)
+TIMEOUT_REPLY = "My brain on the laptop took too long on that one. Try again?"
+FAILED_REPLY = "Claude on the laptop hit an error with that one. Try again in a bit?"
 
 
 class UserLocks:
@@ -32,11 +42,16 @@ def stamp(text: str, now: datetime, tz: ZoneInfo) -> str:
 
 class Assistant:
     def __init__(
-        self, sessionmaker: async_sessionmaker[AsyncSession], agent: Agent, locks: UserLocks
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        locks: UserLocks,
+        agent: Agent | None = None,
+        bridge: BridgeHub | None = None,
     ) -> None:
         self.sessionmaker = sessionmaker
-        self.agent = agent
         self.locks = locks
+        self.agent = agent
+        self.bridge = bridge
 
     async def handle(self, discord_id: int, text: str) -> str:
         async with self.locks.get(discord_id):
@@ -54,9 +69,8 @@ class Assistant:
             user = await session.scalar(select(User).where(User.discord_id == discord_id))
             if user is None:
                 return "I don't know you yet."
-            tz = ZoneInfo(user.timezone)
+            content = stamp(text, now, ZoneInfo(user.timezone))
             store = ConversationStore(session, user)
-            content = stamp(text, now, tz)
 
             fast = await try_fastpath(text, session, user, now)
             if fast is not None:
@@ -68,7 +82,48 @@ class Assistant:
                     tool_names=[f"fastpath:{fast.intent}"],
                 )
                 return fast.reply
+            history = await store.load()
 
+        if self.bridge is not None and self.bridge.online:
+            reply = await self._via_bridge(discord_id, history, content)
+            if reply is not None:
+                return reply
+
+        if self.agent is not None:
+            return await self._via_agent(discord_id, content)
+        return OFFLINE_REPLY
+
+    async def _via_bridge(
+        self, discord_id: int, history: list[dict[str, object]], content: str
+    ) -> str | None:
+        assert self.bridge is not None
+        try:
+            reply = await self.bridge.ask(build_bridge_prompt(history, content), SYSTEM_PROMPT)
+        except BridgeOffline:
+            log.info("bridge.offline_fallback")
+            return None
+        except BridgeTimeout:
+            log.warning("bridge.timeout")
+            return TIMEOUT_REPLY
+        except BridgeFailed as e:
+            log.warning("bridge.failed", error=str(e))
+            return FAILED_REPLY
+        reply = reply.strip() or "👍"
+        async with self.sessionmaker() as session, session.begin():
+            user = await session.scalar(select(User).where(User.discord_id == discord_id))
+            assert user is not None
+            await ConversationStore(session, user).append_exchange(
+                content, reply, MessageSource.BRIDGE
+            )
+        log.info("bridge.replied")
+        return reply
+
+    async def _via_agent(self, discord_id: int, content: str) -> str:
+        assert self.agent is not None
+        async with self.sessionmaker() as session, session.begin():
+            user = await session.scalar(select(User).where(User.discord_id == discord_id))
+            assert user is not None
+            store = ConversationStore(session, user)
             history = await store.load()
             result = await self.agent.run(history, content, ToolContext(session, user))
             await store.append(result.messages)

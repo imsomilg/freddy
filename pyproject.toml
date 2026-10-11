@@ -12,11 +12,14 @@ dependencies = [
     "croniter>=6.2.4",
     "dateparser>=1.4.3",
     "discord-py>=2.7.1",
+    "mcp>=2.3.0",
     "pydantic-settings>=2.15.0",
     "rapidfuzz>=3.14.6",
     "sqlalchemy[asyncio]>=2.1.4",
     "structlog>=26.1.0",
     "tzdata>=2026.5",
+    "uvicorn>=0.54.0",
+    "websockets>=17.2",
 ]
 
 [dependency-groups]

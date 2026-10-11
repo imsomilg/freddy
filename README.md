@@ -22,8 +22,11 @@ Google Calendar, slash commands and a weekly summary are coming next.
 ## How it works
 
 - Messages first go through a fast path in `src/freddy/fastpath/`. Common requests are parsed with regex and handled instantly, no tokens spent.
-- Anything else goes to the model with a small set of tools for goals and reminders.
-- Reminders and check-ins live in Postgres. A loop checks for due ones every 30 seconds, so nothing is lost on restart.
+- Anything else goes to Claude, in this order:
+  1. **Laptop bridge**, if my laptop is on: Claude Code on my laptop answers, using Freddy's tools over MCP.
+  2. **API**, if `ANTHROPIC_API_KEY` is set.
+  3. Otherwise Freddy says its brain is offline and lists what still works.
+- Reminders and check-ins live in Postgres. A loop checks for due ones every 30 seconds, so nothing is lost on restart. They never need Claude.
 
 ## Run it locally
 
@@ -56,11 +59,40 @@ docker compose --profile dev run --rm freddy-dev mypy src
 | `DISCORD_GUILD_ID` | Your server id |
 | `DISCORD_CHANNEL_ID` | The channel Freddy listens in |
 | `OWNER_DISCORD_ID` | Your user id, the only person Freddy answers |
-| `ANTHROPIC_API_KEY` | API key |
+| `ANTHROPIC_API_KEY` | Optional. API key, used when the laptop bridge is offline |
+| `BRIDGE_TOKEN` | Optional. Shared secret for the laptop bridge |
+| `MCP_TOKEN` | Optional. Secret the laptop uses to call Freddy's tools |
 | `CLAUDE_MODEL` | Defaults to `claude-sonnet-5-5` |
 | `DATABASE_URL` | Postgres url, `postgres://` works too |
 | `TIMEZONE` | Like `Asia/Kolkata` |
 | `MORNING_CHECKIN` / `EVENING_CHECKIN` | Defaults `08:00` and `21:00` |
+
+## Laptop bridge
+
+Lets Freddy use Claude Code on my laptop (my own subscription) whenever the laptop is on.
+
+```
+Discord -> Freddy (VPS) -> no fast path match -> laptop bridge -> claude -p -> Freddy's tools (MCP) -> reply
+```
+
+The laptop connects out to Freddy over a WebSocket, so there's nothing to open on the router. Claude on the laptop gets no shell or file tools, only Freddy's goal and reminder tools.
+
+**On the server**
+1. Give the app a domain in Coolify, for example `https://freddy.example.com` (port 8080).
+2. Generate two secrets: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`
+3. Set them as `BRIDGE_TOKEN` and `MCP_TOKEN`, then redeploy.
+
+**On the laptop** (needs Claude Code installed and logged in, plus Python 3.11+)
+```bash
+./bridge/install.sh
+# fill in ~/.config/freddy-bridge.env (FREDDY_URL, both tokens, CLAUDE_MODEL)
+systemctl --user daemon-reload && systemctl --user enable --now freddy-bridge
+journalctl --user -u freddy-bridge -f
+```
+
+`/healthz` shows `"bridge": "online"` when the laptop is connected. If the laptop sleeps, Freddy notices within about 45 seconds and falls back.
+
+This runs the official, unmodified Claude Code just for me. Anthropic's terms don't clearly allow or ban this, so keep it personal and low volume.
 
 ## Discord bot setup
 
