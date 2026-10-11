@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: freddy
+      POSTGRES_PASSWORD: freddy
+      POSTGRES_DB: freddy
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freddy -d freddy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  freddy:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://freddy:freddy@postgres:5432/freddy
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./src
+          target: /app/src
+        - action: sync+restart
+          path: ./migrations
+          target: /app/migrations
+        - action: rebuild
+          path: ./uv.lock
+
+  freddy-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+    environment:
+      TEST_DATABASE_URL: postgresql+asyncpg://freddy:freddy@postgres:5432/freddy_test
+      DATABASE_URL: postgresql+asyncpg://freddy:freddy@postgres:5432/freddy
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./migrations:/app/migrations
+      - ./scripts:/app/scripts
+      - ./pyproject.toml:/app/pyproject.toml
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

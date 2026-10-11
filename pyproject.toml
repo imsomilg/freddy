@@ -1,0 +1,61 @@
+[project]
+name = "freddy"
+version = "0.1.0"
+description = "Personal assistant on Discord for daily goals, reminders and calendar"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiohttp>=3.14.5",
+    "alembic>=1.20.0",
+    "anthropic>=1.13.0",
+    "asyncpg>=0.32.0",
+    "croniter>=6.2.4",
+    "dateparser>=1.4.3",
+    "discord-py>=2.7.1",
+    "pydantic-settings>=2.15.0",
+    "rapidfuzz>=3.14.6",
+    "sqlalchemy[asyncio]>=2.1.4",
+    "structlog>=26.1.0",
+    "tzdata>=2026.5",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.17.0",
+    "types-croniter",
+    "types-dateparser",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/freddy"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "DTZ"]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+mypy_path = "src"
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["discord.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+pythonpath = ["src"]
