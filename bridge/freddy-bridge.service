@@ -1,0 +1,13 @@
+[Unit]
+Description=Freddy bridge (Claude Code on this laptop)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=%h/.config/freddy-bridge.env
+ExecStart=%h/.local/share/freddy-bridge/venv/bin/python %h/.local/share/freddy-bridge/freddy_bridge.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

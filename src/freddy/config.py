@@ -14,11 +14,15 @@ class Settings(BaseSettings):
     discord_channel_id: int
     owner_discord_id: int
 
-    anthropic_api_key: SecretStr
+    anthropic_api_key: SecretStr | None = None
     claude_model: str = "claude-sonnet-5-5"
     claude_effort: str = "low"
     claude_max_tool_rounds: int = 8
     claude_max_tokens: int = 4096
+
+    bridge_token: SecretStr | None = None
+    mcp_token: SecretStr | None = None
+    bridge_timeout: float = 150
 
     database_url: str
 

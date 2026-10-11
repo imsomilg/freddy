@@ -48,6 +48,7 @@ services:
       - ./tests:/app/tests
       - ./migrations:/app/migrations
       - ./scripts:/app/scripts
+      - ./bridge:/app/bridge
       - ./pyproject.toml:/app/pyproject.toml
     depends_on:
       postgres:

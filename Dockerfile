@@ -42,6 +42,7 @@ COPY --from=dev-deps /app/.venv /app/.venv
 COPY pyproject.toml ./
 COPY tests ./tests
 COPY scripts ./scripts
+COPY bridge ./bridge
 ENV RUFF_CACHE_DIR=/tmp/ruff \
     MYPY_CACHE_DIR=/tmp/mypy \
     PYTEST_ADDOPTS="-p no:cacheprovider"

@@ -56,3 +56,17 @@ async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 @pytest.fixture
 async def user(session: AsyncSession) -> User:
     return await ensure_owner(session, 42, "Asia/Kolkata", time(8, 0), time(21, 0))
+
+
+@pytest.fixture
+async def committed_owner(engine: AsyncEngine) -> AsyncIterator[User]:
+    from sqlalchemy import delete
+
+    from freddy.db.engine import make_sessionmaker
+
+    maker = make_sessionmaker(engine)
+    async with maker() as s, s.begin():
+        owner = await ensure_owner(s, 9001, "Asia/Kolkata", time(8, 0), time(21, 0))
+    yield owner
+    async with maker() as s, s.begin():
+        await s.execute(delete(User).where(User.discord_id == 9001))
