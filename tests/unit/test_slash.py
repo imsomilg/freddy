@@ -37,5 +37,5 @@ def test_commands_registered_for_guild_only() -> None:
     commands = SlashCommands(None, UserLocks())  # type: ignore[arg-type]
     channel = DiscordChannel("t", 10, 20, 30, handler=None, commands=commands)  # type: ignore[arg-type]
     names = {c.name for c in channel.tree.get_commands(guild=discord.Object(10))}
-    assert names == {"goals", "done", "remind", "reminders", "checkin"}
+    assert names == {"goals", "today", "done", "remind", "reminders", "checkin"}
     assert channel.tree.get_commands() == []

@@ -9,6 +9,7 @@ from freddy.domain.goals import GoalService
 from freddy.domain.reminders import ReminderError, ReminderService
 from freddy.domain.timeutil import utcnow
 from freddy.fastpath.router import try_fastpath
+from tests.fakes import FakeCalendar
 
 
 async def test_owner_gets_checkins(session: AsyncSession, user: User) -> None:
@@ -82,3 +83,24 @@ async def test_fastpath_end_to_end(session: AsyncSession, user: User) -> None:
     assert rem is not None and rem.reply.startswith("✅ Reminder set")
 
     assert await try_fastpath("done taxes", session, user, now) is None
+
+
+async def test_fastpath_agenda(session: AsyncSession, user: User) -> None:
+    now = utcnow()
+    await GoalService(session, user).add("hit the gym")
+
+    no_cal = await try_fastpath("what's on today", session, user, now)
+    assert no_cal is not None and no_cal.intent == "Agenda"
+    assert no_cal.reply.splitlines()[0] == "Today, sir:"
+    assert "hit the gym" in no_cal.reply and "calendar" not in no_cal.reply
+
+    cal = FakeCalendar()
+    tomorrow = await try_fastpath("what's on tomorrow", session, user, now, cal)  # type: ignore[arg-type]
+    assert tomorrow is not None
+    assert tomorrow.reply == "Tomorrow, sir:\nNo goals yet.\nNothing on the calendar."
+    start, end, _ = cal.calls[0][1]
+    assert (end - start) == timedelta(days=1)
+    assert start.date() == GoalService(session, user).today() + timedelta(days=1)
+
+    goals_only = await try_fastpath("goals", session, user, now, cal)  # type: ignore[arg-type]
+    assert goals_only is not None and goals_only.intent == "ListGoals"

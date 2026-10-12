@@ -15,12 +15,14 @@ from freddy.bridge.prompt import build_bridge_prompt
 from freddy.db.models import MessageSource, User
 from freddy.domain.timeutil import utcnow
 from freddy.fastpath.router import try_fastpath
+from freddy.integrations.google.calendar import CalendarService
 
 log = structlog.get_logger()
 
 OFFLINE_REPLY = (
     "My apologies, sir, my brain is offline (the laptop's off). I can still manage:\n"
-    "`add goal: X`, `goals`, `done X`, `reminders`, `cancel reminder 3`, "
+    "`add goal: X`, `goals`, `today`, `what's on tomorrow`, `done X`, `reminders`, "
+    "`cancel reminder 3`, "
     "`remind me in 20 min / at 6pm / every weekday at 7:30 to X`"
 )
 TIMEOUT_REPLY = "That one took me far too long, sir. Shall we try again?"
@@ -47,11 +49,13 @@ class Assistant:
         locks: UserLocks,
         agent: Agent | None = None,
         bridge: BridgeHub | None = None,
+        calendar: CalendarService | None = None,
     ) -> None:
         self.sessionmaker = sessionmaker
         self.locks = locks
         self.agent = agent
         self.bridge = bridge
+        self.calendar = calendar
 
     async def handle(self, discord_id: int, text: str) -> str:
         async with self.locks.get(discord_id):
@@ -72,7 +76,7 @@ class Assistant:
             content = stamp(text, now, ZoneInfo(user.timezone))
             store = ConversationStore(session, user)
 
-            fast = await try_fastpath(text, session, user, now)
+            fast = await try_fastpath(text, session, user, now, self.calendar)
             if fast is not None:
                 log.info("fastpath.hit", intent=fast.intent)
                 await store.append_exchange(
@@ -125,6 +129,8 @@ class Assistant:
             assert user is not None
             store = ConversationStore(session, user)
             history = await store.load()
-            result = await self.agent.run(history, content, ToolContext(session, user))
+            result = await self.agent.run(
+                history, content, ToolContext(session, user, self.calendar)
+            )
             await store.append(result.messages)
             return result.reply

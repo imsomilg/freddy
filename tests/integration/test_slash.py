@@ -1,3 +1,6 @@
+from datetime import timedelta
+from zoneinfo import ZoneInfo
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -6,6 +9,10 @@ from freddy.assistant.commands import UNKNOWN_USER, SlashCommands
 from freddy.assistant.service import UserLocks
 from freddy.db.engine import make_sessionmaker
 from freddy.db.models import Goal, GoalStatus, Message, Reminder, User
+from freddy.domain.agenda import day_bounds
+from freddy.domain.timeutil import local_today
+from freddy.integrations.google.calendar import CalendarEvent
+from tests.fakes import FakeCalendar
 
 
 def slash(engine: AsyncEngine) -> SlashCommands:
@@ -70,3 +77,43 @@ async def test_checkin(engine: AsyncEngine, committed_owner: User) -> None:
 async def test_unknown_user(engine: AsyncEngine) -> None:
     assert await slash(engine).goals(1) == UNKNOWN_USER
     assert await slash(engine).open_goals(1, "") == []
+
+
+def standup(owner: User) -> CalendarEvent:
+    tz = ZoneInfo(owner.timezone)
+    start = day_bounds(local_today(tz), tz)[0] + timedelta(hours=9, minutes=30)
+    return CalendarEvent(
+        id="s1", summary="Standup", start=start, end=start + timedelta(minutes=15), all_day=False
+    )
+
+
+async def test_today_shows_goals_and_events(engine: AsyncEngine, committed_owner: User) -> None:
+    cal = FakeCalendar([standup(committed_owner)])
+    c = SlashCommands(make_sessionmaker(engine), UserLocks(), cal)  # type: ignore[arg-type]
+    await add_goal(engine, committed_owner, "stretch")
+    reply = await c.today(9001)
+    lines = reply.splitlines()
+    assert lines[0] == "Today, sir:"
+    assert lines[1].endswith("stretch")
+    assert lines[2:] == ["On the calendar:", "• 09:30 to 09:45 Standup"]
+
+
+async def test_morning_checkin_lists_events(engine: AsyncEngine, committed_owner: User) -> None:
+    cal = FakeCalendar([standup(committed_owner)])
+    c = SlashCommands(make_sessionmaker(engine), UserLocks(), cal)  # type: ignore[arg-type]
+    empty = await c.checkin(9001, "morning")
+    assert "Nothing on the list yet.\nOn the calendar:\n• 09:30 to 09:45 Standup\n" in empty
+
+    await add_goal(engine, committed_owner, "stretch")
+    reply = (await c.checkin(9001, "morning")).splitlines()
+    assert reply[1].endswith("stretch")
+    assert reply[2:] == ["On the calendar:", "• 09:30 to 09:45 Standup", "Anything to add?"]
+
+
+async def test_morning_checkin_when_calendar_fails(
+    engine: AsyncEngine, committed_owner: User
+) -> None:
+    cal = FakeCalendar(fail="The calendar isn't answering, sir.")
+    c = SlashCommands(make_sessionmaker(engine), UserLocks(), cal)  # type: ignore[arg-type]
+    reply = await c.checkin(9001, "morning")
+    assert "The calendar isn't answering, sir." in reply

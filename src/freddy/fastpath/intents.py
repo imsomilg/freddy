@@ -12,6 +12,11 @@ class ListGoals:
 
 
 @dataclass(frozen=True)
+class Agenda:
+    days_ahead: int = 0
+
+
+@dataclass(frozen=True)
 class AddGoal:
     title: str
 
@@ -46,6 +51,7 @@ class CancelReminder:
 
 Intent = (
     ListGoals
+    | Agenda
     | AddGoal
     | CompleteGoal
     | AddReminderOnce
@@ -55,10 +61,11 @@ Intent = (
 )
 
 _LIST_GOALS = re.compile(
-    r"^(?:goals|my goals|today|todays goals|today's goals|"
+    r"^(?:goals|my goals|todays goals|today's goals|"
     r"(?:show|list)(?: me)?(?: my)? goals(?: for today)?|"
-    r"what are my goals(?: for today| today)?|what(?:'s| is) on today)$"
+    r"what are my goals(?: for today| today)?)$"
 )
+_AGENDA = re.compile(r"^(?:today|what(?:'s| is) on(?: for)? (?P<day>today|tomorrow))$")
 _ADD_GOAL = re.compile(
     r"^(?:add(?: a)?(?: new)? goal|new goal)\s*:?\s+(?P<t>.+)$|^goal\s*:\s*(?P<t2>.+)$"
 )
@@ -104,6 +111,8 @@ def parse(text: str, now: datetime, tz: ZoneInfo) -> Intent | None:
 
     if _LIST_GOALS.match(lower):
         return ListGoals()
+    if m := _AGENDA.match(lower):
+        return Agenda(days_ahead=1 if m["day"] == "tomorrow" else 0)
     if _LIST_REMINDERS.match(lower):
         return ListReminders()
 

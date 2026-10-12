@@ -112,6 +112,10 @@ class DiscordChannel:
         async def goals(interaction: discord.Interaction) -> None:
             await self._respond(interaction, commands.goals(interaction.user.id))
 
+        @self.tree.command(name="today", description="Today's goals and calendar", guild=guild)
+        async def today(interaction: discord.Interaction) -> None:
+            await self._respond(interaction, commands.today(interaction.user.id))
+
         @self.tree.command(name="done", description="Mark a goal done", guild=guild)
         @app_commands.describe(goal="Pick one of today's open goals")
         async def done(interaction: discord.Interaction, goal: int) -> None:

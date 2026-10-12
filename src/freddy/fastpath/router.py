@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from freddy import persona
 from freddy.db.models import User
+from freddy.domain.agenda import render_day
 from freddy.domain.goals import GoalNotFound, GoalService, format_goal, format_goal_list
 from freddy.domain.reminders import ReminderError, ReminderService
 from freddy.domain.timeutil import describe_cron, format_local
@@ -13,6 +14,7 @@ from freddy.fastpath.intents import (
     AddGoal,
     AddReminderOnce,
     AddReminderRecurring,
+    Agenda,
     CancelReminder,
     CompleteGoal,
     Intent,
@@ -20,6 +22,7 @@ from freddy.fastpath.intents import (
     ListReminders,
     parse,
 )
+from freddy.integrations.google.calendar import CalendarService
 
 
 @dataclass
@@ -28,7 +31,9 @@ class FastPathResult:
     reply: str
 
 
-async def run(intent: Intent, session: AsyncSession, user: User) -> str | None:
+async def run(
+    intent: Intent, session: AsyncSession, user: User, calendar: CalendarService | None = None
+) -> str | None:
     tz = ZoneInfo(user.timezone)
     goals = GoalService(session, user)
     reminders = ReminderService(session, user)
@@ -38,6 +43,8 @@ async def run(intent: Intent, session: AsyncSession, user: User) -> str | None:
             if not items:
                 return persona.line("no_goals")
             return "Today's list, sir:\n" + format_goal_list(items, goals.today())
+        case Agenda(days_ahead=days_ahead):
+            return await render_day(session, user, calendar, days_ahead)
         case AddGoal(title=title):
             goal = await goals.add(title)
             return f"✅ Goal added: #{goal.id} {goal.title}\n{persona.line('goal_added')}"
@@ -91,12 +98,16 @@ async def run(intent: Intent, session: AsyncSession, user: User) -> str | None:
 
 
 async def try_fastpath(
-    text: str, session: AsyncSession, user: User, now: datetime
+    text: str,
+    session: AsyncSession,
+    user: User,
+    now: datetime,
+    calendar: CalendarService | None = None,
 ) -> FastPathResult | None:
     intent = parse(text, now, ZoneInfo(user.timezone))
     if intent is None:
         return None
-    reply = await run(intent, session, user)
+    reply = await run(intent, session, user, calendar)
     if reply is None:
         return None
     return FastPathResult(intent=type(intent).__name__, reply=reply)

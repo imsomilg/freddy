@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from freddy.assistant.history import ConversationStore
 from freddy.assistant.service import UserLocks, stamp
 from freddy.db.models import MessageSource, ReminderKind, User
+from freddy.domain.agenda import render_day
 from freddy.domain.goals import GoalService
 from freddy.domain.timeutil import utcnow
 from freddy.fastpath.intents import (
@@ -19,6 +20,7 @@ from freddy.fastpath.intents import (
     reminder_intent,
 )
 from freddy.fastpath.router import run
+from freddy.integrations.google.calendar import CalendarService
 from freddy.scheduler.loop import render_checkin
 
 log = structlog.get_logger()
@@ -34,15 +36,27 @@ Render = Callable[[AsyncSession, User, datetime, ZoneInfo], Awaitable[str | None
 
 
 class SlashCommands:
-    def __init__(self, sessionmaker: async_sessionmaker[AsyncSession], locks: UserLocks) -> None:
+    def __init__(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        locks: UserLocks,
+        calendar: CalendarService | None = None,
+    ) -> None:
         self.sessionmaker = sessionmaker
         self.locks = locks
+        self.calendar = calendar
 
     async def goals(self, discord_id: int) -> str:
         async def render(s: AsyncSession, u: User, now: datetime, tz: ZoneInfo) -> str | None:
             return await run(ListGoals(), s, u)
 
         return await self._run(discord_id, "/goals", render)
+
+    async def today(self, discord_id: int) -> str:
+        async def render(s: AsyncSession, u: User, now: datetime, tz: ZoneInfo) -> str | None:
+            return await render_day(s, u, self.calendar)
+
+        return await self._run(discord_id, "/today", render)
 
     async def done(self, discord_id: int, goal_id: int) -> str:
         async def render(s: AsyncSession, u: User, now: datetime, tz: ZoneInfo) -> str | None:
@@ -70,7 +84,7 @@ class SlashCommands:
     ) -> str:
         async def render(s: AsyncSession, u: User, now: datetime, tz: ZoneInfo) -> str | None:
             kind = checkin_kind(u, now.astimezone(tz), which)
-            return await render_checkin(s, u, kind)
+            return await render_checkin(s, u, kind, self.calendar)
 
         return await self._run(discord_id, f"/checkin {which or ''}".strip(), render)
 
