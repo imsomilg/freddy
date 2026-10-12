@@ -1,0 +1,77 @@
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: freddy
+          POSTGRES_PASSWORD: freddy
+          POSTGRES_DB: freddy
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql+asyncpg://freddy:freddy@localhost:5432/freddy
+      TEST_DATABASE_URL: postgresql+asyncpg://freddy:freddy@localhost:5432/freddy_test
+      RUN: docker run --rm --network host -e DATABASE_URL -e TEST_DATABASE_URL freddy-dev:ci
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build dev image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: dev
+          load: true
+          tags: freddy-dev:ci
+          cache-from: type=gha,scope=dev
+          cache-to: type=gha,mode=max,scope=dev
+
+      - name: ruff format
+        run: $RUN ruff format --check src tests scripts migrations
+
+      - name: ruff check
+        run: $RUN ruff check src tests scripts migrations
+
+      - name: mypy
+        run: $RUN mypy src
+
+      - name: alembic upgrade
+        run: $RUN alembic upgrade head
+
+      - name: alembic check
+        run: $RUN alembic check
+
+      - name: pytest
+        run: $RUN pytest -q
+
+  runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build runtime image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runtime
+          push: false
+          cache-from: type=gha,scope=runtime
+          cache-to: type=gha,mode=max,scope=runtime

@@ -1,6 +1,6 @@
 # Freddy
 
-My personal assistant. It lives in a channel on my Discord server, keeps me on top of my daily goals and pings me with reminders. Simple stuff is handled by plain Python, and anything it can't parse goes to the Anthropic API.
+My personal assistant. It lives in a channel on my Discord server, keeps me on top of my daily goals and pings me with reminders. Simple stuff is handled by plain Python. Anything it can't parse goes to Claude Code on my laptop when it's on, then to the Anthropic API if `ANTHROPIC_API_KEY` is set, otherwise Freddy says its brain is offline.
 
 ## What it does right now
 
@@ -47,9 +47,13 @@ Tests, lint and types:
 
 ```bash
 docker compose --profile dev run --rm freddy-dev pytest
-docker compose --profile dev run --rm freddy-dev ruff check src tests
+docker compose --profile dev run --rm freddy-dev ruff format --check src tests scripts migrations
+docker compose --profile dev run --rm freddy-dev ruff check src tests scripts migrations
 docker compose --profile dev run --rm freddy-dev mypy src
+docker compose --profile dev run --rm freddy-dev sh -c "alembic upgrade head && alembic check"
 ```
+
+CI runs the same checks on every PR, plus a build of the runtime image.
 
 ## Config
 
@@ -104,4 +108,14 @@ This runs the official, unmodified Claude Code just for me. Anthropic's terms do
 
 ## Deploy
 
-I run it on Coolify. Create an app from this repo with the Dockerfile build pack, add a Postgres database, set the env vars above and deploy. Keep it to one replica, Discord only allows one connection per bot. No domain needed, the health check runs inside the container.
+I run it on Coolify.
+
+1. Create an app from this repo with the Dockerfile build pack and set **Ports Exposes** to `8080`.
+2. Add a Postgres database and use its internal url as `DATABASE_URL`.
+3. Give the app a domain so the laptop can reach `/bridge` and `/mcp/`:
+   - At your DNS provider, point an `A` record for the domain at the Coolify server. Ports 80 and 443 need to reach the server for the certificate.
+   - In Coolify, open the app, then **Domains**, then **Add domain**. Protocol `https`, your domain, port `8080`.
+4. Set the env vars above. Generate `BRIDGE_TOKEN` and `MCP_TOKEN` (see Laptop bridge). `ANTHROPIC_API_KEY` is optional.
+5. Deploy, and redeploy after any domain change.
+
+Keep it to one replica, Discord only allows one connection per bot.
