@@ -17,6 +17,8 @@ Just talk to it in plain English:
 
 Every morning and evening it checks in with your goals for the day. Sunday evening it sends a weekly summary: goals done vs set, streak and best day.
 
+Freddy talks like a butler and calls me sir. Its lines rotate from pools in `src/freddy/persona.py`, so it doesn't repeat itself and no tokens are spent on it. Swap them for your own. Every time it boots it says hi and tells me what changed since the last deploy.
+
 Google Calendar is coming next.
 
 ## How it works
