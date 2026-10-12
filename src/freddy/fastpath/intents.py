@@ -83,7 +83,7 @@ def _normalise(text: str) -> str:
     return text.rstrip(".!?").strip()
 
 
-def _reminder(what: str, when: str, now: datetime, tz: ZoneInfo) -> Intent | None:
+def reminder_intent(what: str, when: str, now: datetime, tz: ZoneInfo) -> Intent | None:
     what = what.strip()
     if not what:
         return None
@@ -129,7 +129,7 @@ def parse(text: str, now: datetime, tz: ZoneInfo) -> Intent | None:
 
     if m := _REMIND_WHEN_FIRST.match(lower):
         start = m.start("what")
-        intent = _reminder(original[start:], m["when"], now, tz)
+        intent = reminder_intent(original[start:], m["when"], now, tz)
         if intent:
             return intent
 
@@ -138,7 +138,9 @@ def parse(text: str, now: datetime, tz: ZoneInfo) -> Intent | None:
         rest = lower[rest_start:]
         splits = [s.start() for s in _WHEN_KEYWORDS.finditer(rest)]
         for pos in reversed(splits):
-            intent = _reminder(original[rest_start : rest_start + pos], rest[pos + 1 :], now, tz)
+            intent = reminder_intent(
+                original[rest_start : rest_start + pos], rest[pos + 1 :], now, tz
+            )
             if intent:
                 return intent
 
