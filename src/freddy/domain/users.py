@@ -5,11 +5,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from freddy.db.models import Reminder, ReminderKind, User
-from freddy.domain.timeutil import daily_cron, next_cron_run
+from freddy.domain.timeutil import daily_cron, next_cron_run, weekly_cron
 
 
 async def ensure_owner(
-    session: AsyncSession, discord_id: int, timezone: str, morning: time, evening: time
+    session: AsyncSession,
+    discord_id: int,
+    timezone: str,
+    morning: time,
+    evening: time,
+    weekly_delay: int = 30,
 ) -> User:
     user = await session.scalar(select(User).where(User.discord_id == discord_id))
     if user is None:
@@ -18,11 +23,13 @@ async def ensure_owner(
             timezone=timezone,
             morning_checkin=morning,
             evening_checkin=evening,
+            weekly_summary_delay=weekly_delay,
         )
         session.add(user)
         await session.flush()
-    elif user.timezone != timezone:
+    else:
         user.timezone = timezone
+        user.weekly_summary_delay = weekly_delay
     await ensure_checkins(session, user)
     return user
 
@@ -32,6 +39,7 @@ async def ensure_checkins(session: AsyncSession, user: User) -> None:
     wanted = {
         ReminderKind.CHECKIN_MORNING: daily_cron(user.morning_checkin),
         ReminderKind.CHECKIN_EVENING: daily_cron(user.evening_checkin),
+        ReminderKind.WEEKLY_SUMMARY: weekly_cron(user.evening_checkin, user.weekly_summary_delay),
     }
     existing = {
         r.kind: r

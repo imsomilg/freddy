@@ -28,6 +28,13 @@ def daily_cron(t: time) -> str:
     return f"{t.minute} {t.hour} * * *"
 
 
+def weekly_cron(t: time, delay_minutes: int = 0, dow: int = 0) -> str:
+    minutes = t.hour * 60 + t.minute + delay_minutes
+    day = (dow + minutes // 1440) % 7
+    minutes %= 1440
+    return f"{minutes % 60} {minutes // 60} * * {day}"
+
+
 def describe_cron(expr: str) -> str:
     parts = expr.split()
     if len(parts) != 5:

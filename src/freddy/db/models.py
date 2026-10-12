@@ -34,6 +34,7 @@ class ReminderKind(enum.StrEnum):
     REMINDER = "reminder"
     CHECKIN_MORNING = "checkin_morning"
     CHECKIN_EVENING = "checkin_evening"
+    WEEKLY_SUMMARY = "weekly_summary"
 
 
 class MessageSource(enum.StrEnum):
@@ -52,6 +53,7 @@ class User(Base):
     timezone: Mapped[str] = mapped_column(String(64))
     morning_checkin: Mapped[time] = mapped_column(Time)
     evening_checkin: Mapped[time] = mapped_column(Time)
+    weekly_summary_delay: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

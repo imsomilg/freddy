@@ -33,6 +33,7 @@ async def main() -> None:
             settings.timezone,
             settings.morning_checkin,
             settings.evening_checkin,
+            settings.weekly_summary_delay,
         )
 
     agent = None

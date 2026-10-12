@@ -15,9 +15,9 @@ Just talk to it in plain English:
 - `reminders` and `cancel reminder 3`
 - anything else, like `move my evening check-in to 10pm` or `how did I do this week?`
 
-Every morning and evening it checks in with your goals for the day.
+Every morning and evening it checks in with your goals for the day. Sunday evening it sends a weekly summary: goals done vs set, streak and best day.
 
-Google Calendar, slash commands and a weekly summary are coming next.
+Google Calendar is coming next.
 
 ## How it works
 
@@ -70,6 +70,7 @@ CI runs the same checks on every PR, plus a build of the runtime image.
 | `DATABASE_URL` | Postgres url, `postgres://` works too |
 | `TIMEZONE` | Like `Asia/Kolkata` |
 | `MORNING_CHECKIN` / `EVENING_CHECKIN` | Defaults `08:00` and `21:00` |
+| `WEEKLY_SUMMARY_DELAY` | Minutes after the Sunday evening check-in for the weekly summary. Default `30` |
 
 ## Laptop bridge
 
