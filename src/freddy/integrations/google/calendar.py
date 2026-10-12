@@ -45,6 +45,8 @@ class CalendarEvent:
     link: str | None = None
     transparent: bool = False
     declined: bool = False
+    recurring_event_id: str | None = None
+    series: bool = False
 
 
 def _parse_when(raw: dict[str, Any], tz: ZoneInfo) -> When:
@@ -69,6 +71,8 @@ def _event(raw: dict[str, Any], tz: ZoneInfo) -> CalendarEvent:
             a.get("self") and a.get("responseStatus") == "declined"
             for a in raw.get("attendees", ())
         ),
+        recurring_event_id=raw.get("recurringEventId"),
+        series="recurrence" in raw,
     )
 
 
@@ -134,7 +138,7 @@ class CalendarService:
     ) -> None:
         self._calendar_id = calendar_id
         self._tz = tz
-        self._alert = alert
+        self.alert = alert
         self._events: Any = build(
             "calendar", "v3", credentials=creds, cache_discovery=False, static_discovery=True
         ).events()
@@ -147,8 +151,8 @@ class CalendarService:
             try:
                 return await asyncio.to_thread(fn, self._http())
             except RefreshError as e:
-                if is_invalid_grant(e) and self._alert:
-                    await self._alert.expired()
+                if is_invalid_grant(e) and self.alert:
+                    await self.alert.expired()
                 log.warning("calendar.refresh_failed", action=action, error=str(e))
                 raise CalendarError(persona.line("calendar_expired")) from e
             except HttpError as e:
@@ -160,10 +164,15 @@ class CalendarService:
                 log.warning("calendar.unreachable", action=action, error=str(e))
                 raise CalendarError(persona.line("calendar_down")) from e
 
-    async def list_events(self, start: datetime, end: datetime) -> list[CalendarEvent]:
-        """Events overlapping [start, end), recurring ones expanded, ordered by start."""
+    async def list_events(
+        self, start: datetime, end: datetime, query: str | None = None
+    ) -> list[CalendarEvent]:
+        """Events overlapping [start, end), recurring ones expanded, ordered by start.
+
+        query is Google's free text search over title, description, location and guests.
+        """
         _check_range(start, end)
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "calendarId": self._calendar_id,
             "timeMin": start.isoformat(),
             "timeMax": end.isoformat(),
@@ -171,6 +180,8 @@ class CalendarService:
             "orderBy": "startTime",
             "maxResults": 2500,
         }
+        if query:
+            kwargs["q"] = query
 
         def call(http: Any) -> list[dict[str, Any]]:
             items: list[dict[str, Any]] = []
@@ -190,6 +201,15 @@ class CalendarService:
         """
         events = await self.list_events(start, end)
         return [(e.start, e.end) for e in events if not e.transparent and not e.declined]
+
+    async def get_event(self, event_id: str) -> CalendarEvent:
+        def call(http: Any) -> dict[str, Any]:
+            result: dict[str, Any] = self._events.get(
+                calendarId=self._calendar_id, eventId=event_id
+            ).execute(http=http, num_retries=RETRIES)
+            return result
+
+        return _event(await self._run("get", call), self._tz)
 
     async def create_event(
         self,
@@ -293,3 +313,18 @@ class CalendarService:
                 log.info("calendar.already_deleted", event_id=event_id)
 
         await self._run("delete", call)
+
+    async def cancel_occurrence(
+        self, event_id: str, *, send_updates: SendUpdates | None = None
+    ) -> None:
+        """Cancels one instance of a recurring event, as Google's recurring events guide does."""
+
+        def call(http: Any) -> None:
+            self._events.patch(
+                calendarId=self._calendar_id,
+                eventId=event_id,
+                body={"status": "cancelled"},
+                sendUpdates=send_updates or "none",
+            ).execute(http=http, num_retries=RETRIES)
+
+        await self._run("cancel", call)

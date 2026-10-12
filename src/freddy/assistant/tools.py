@@ -1,6 +1,6 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -8,10 +8,18 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from freddy.db.models import GoalStatus, User
+from freddy.domain.agenda import day_bounds, event_when
+from freddy.domain.freetime import SLEEP, WAKE, free_slots
 from freddy.domain.goals import GoalNotFound, GoalService, format_goal_list
 from freddy.domain.reminders import ReminderError, ReminderService
-from freddy.domain.timeutil import describe_cron, format_local
+from freddy.domain.timeutil import describe_cron, format_local, local_today, utcnow
 from freddy.domain.users import ensure_checkins
+from freddy.integrations.google.calendar import (
+    CalendarError,
+    CalendarEvent,
+    CalendarService,
+    SendUpdates,
+)
 
 
 class ToolError(Exception):
@@ -22,6 +30,7 @@ class ToolError(Exception):
 class ToolContext:
     session: AsyncSession
     user: User
+    calendar: CalendarService | None = None
 
     @property
     def tz(self) -> ZoneInfo:
@@ -75,6 +84,69 @@ class ReminderIdInput(BaseModel):
 class CheckinTimesInput(BaseModel):
     morning: time | None = Field(None, description="Local time HH:MM")
     evening: time | None = Field(None, description="Local time HH:MM")
+
+
+class ListEventsInput(BaseModel):
+    day: date | None = Field(None, description="First local date YYYY-MM-DD. Omit for today.")
+    days: int = Field(1, ge=1, le=31, description="How many days to cover, starting at day")
+    query: str | None = Field(
+        None,
+        description="Optional search over title, description, location and guests, e.g. 'Raj'",
+    )
+
+
+NOTIFY = Field(
+    False,
+    description="Email the guests about this. Only true after the owner said yes to emailing them.",
+)
+
+
+class CreateEventInput(BaseModel):
+    summary: str = Field(description="Event title")
+    start: datetime | None = Field(
+        None, description="Timed event: local start, ISO like 2026-10-13T13:00"
+    )
+    end: datetime | None = Field(None, description="Timed event: local end")
+    all_day: date | None = Field(
+        None, description="All-day event: local date YYYY-MM-DD. Use instead of start/end."
+    )
+    all_day_days: int = Field(1, ge=1, le=31, description="All-day event length in days")
+    location: str | None = None
+    description: str | None = None
+    attendees: list[str] = Field(default_factory=list, description="Guest emails")
+    notify_attendees: bool = NOTIFY
+
+
+class UpdateEventInput(BaseModel):
+    event_id: str
+    summary: str | None = None
+    start: datetime | None = Field(
+        None, description="New local start. Give start and end together."
+    )
+    end: datetime | None = Field(None, description="New local end")
+    all_day: date | None = Field(
+        None, description="Make it an all-day event on this local date, instead of start/end"
+    )
+    all_day_days: int = Field(1, ge=1, le=31, description="All-day event length in days")
+    location: str | None = None
+    description: str | None = None
+    attendees: list[str] | None = Field(
+        None, description="Guest emails. Replaces the whole guest list."
+    )
+    notify_attendees: bool = NOTIFY
+
+
+class DeleteEventInput(BaseModel):
+    event_id: str
+    notify_attendees: bool = NOTIFY
+
+
+class FreeTimeInput(BaseModel):
+    day: date | None = Field(None, description="First local date YYYY-MM-DD. Omit for today.")
+    days: int = Field(1, ge=1, le=14, description="How many days to search, starting at day")
+    minutes: int = Field(description="Slot length in minutes", ge=5, le=720)
+    wake: time | None = Field(None, description="Earliest local time HH:MM, default 08:00")
+    sleep: time | None = Field(None, description="Latest local time HH:MM, default 22:00")
 
 
 Handler = Callable[[Any, ToolContext], Awaitable[str]]
@@ -196,6 +268,164 @@ async def set_checkin_times(args: CheckinTimesInput, ctx: ToolContext) -> str:
     )
 
 
+def _calendar(ctx: ToolContext) -> CalendarService:
+    if ctx.calendar is None:
+        raise ToolError("the calendar isn't connected")
+    return ctx.calendar
+
+
+def _local(dt: datetime, tz: ZoneInfo) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=tz)
+
+
+def _span(
+    start: datetime | None,
+    end: datetime | None,
+    all_day: date | None,
+    all_day_days: int,
+    tz: ZoneInfo,
+) -> tuple[datetime, datetime] | tuple[date, date] | None:
+    if all_day is not None:
+        if start is not None or end is not None:
+            raise ToolError("give either all_day or start and end, not both")
+        return all_day, all_day + timedelta(days=all_day_days)
+    if (start is None) != (end is None):
+        raise ToolError("give start and end together")
+    if start is None or end is None:
+        return None
+    return _local(start, tz), _local(end, tz)
+
+
+def _updates(notify: bool) -> SendUpdates:
+    return "all" if notify else "none"
+
+
+def _event_span(e: CalendarEvent, tz: ZoneInfo) -> str:
+    if isinstance(e.start, datetime):
+        return f"{e.start.astimezone(tz):%a %d %b} {event_when(e, tz)}"
+    last = e.end - timedelta(days=1)
+    if not isinstance(e.end, datetime) and last > e.start:
+        return f"{e.start:%a %d %b} to {last:%a %d %b} all day"
+    return f"{e.start:%a %d %b} all day"
+
+
+def describe_event(e: CalendarEvent, tz: ZoneInfo) -> str:
+    parts = [f"id {e.id}", _event_span(e, tz), e.summary]
+    if e.location:
+        parts.append(f"at {e.location}")
+    if e.attendees:
+        parts.append("guests: " + ", ".join(e.attendees))
+    if e.recurring_event_id:
+        parts.append("repeats")
+    if e.declined:
+        parts.append("I declined")
+    if e.transparent:
+        parts.append("marked free")
+    return " | ".join(parts)
+
+
+async def _single(cal: CalendarService, event_id: str) -> CalendarEvent:
+    event = await cal.get_event(event_id)
+    if event.series:
+        raise ToolError(
+            "that id is a whole repeating series. I only change single occurrences, "
+            "use an id from list_events, or change the series in Google Calendar"
+        )
+    return event
+
+
+async def list_events(args: ListEventsInput, ctx: ToolContext) -> str:
+    cal = _calendar(ctx)
+    day = args.day or local_today(ctx.tz)
+    try:
+        events = await cal.list_events(*day_bounds(day, ctx.tz, args.days), query=args.query)
+    except CalendarError as e:
+        raise ToolError(str(e)) from e
+    last = day + timedelta(days=args.days - 1)
+    span = day.isoformat() if args.days == 1 else f"{day.isoformat()} to {last.isoformat()}"
+    found = f" matching '{args.query}'" if args.query else ""
+    if not events:
+        return f"no events{found} for {span}"
+    return f"events{found} for {span}:\n" + "\n".join(describe_event(e, ctx.tz) for e in events)
+
+
+async def create_event(args: CreateEventInput, ctx: ToolContext) -> str:
+    cal = _calendar(ctx)
+    span = _span(args.start, args.end, args.all_day, args.all_day_days, ctx.tz)
+    if span is None:
+        raise ToolError("give start and end, or all_day")
+    try:
+        event = await cal.create_event(
+            args.summary,
+            *span,
+            location=args.location,
+            description=args.description,
+            attendees=args.attendees,
+            send_updates=_updates(args.notify_attendees),
+        )
+    except (CalendarError, ValueError) as e:
+        raise ToolError(str(e)) from e
+    emailed = ", guests emailed" if args.notify_attendees and args.attendees else ""
+    return f"created: {describe_event(event, ctx.tz)}{emailed}"
+
+
+async def update_event(args: UpdateEventInput, ctx: ToolContext) -> str:
+    cal = _calendar(ctx)
+    span = _span(args.start, args.end, args.all_day, args.all_day_days, ctx.tz)
+    try:
+        await _single(cal, args.event_id)
+        event = await cal.update_event(
+            args.event_id,
+            summary=args.summary,
+            start=span[0] if span else None,
+            end=span[1] if span else None,
+            location=args.location,
+            description=args.description,
+            attendees=args.attendees,
+            send_updates=_updates(args.notify_attendees),
+        )
+    except (CalendarError, ValueError) as e:
+        raise ToolError(str(e)) from e
+    emailed = ", guests emailed" if args.notify_attendees and event.attendees else ""
+    return f"updated: {describe_event(event, ctx.tz)}{emailed}"
+
+
+async def delete_event(args: DeleteEventInput, ctx: ToolContext) -> str:
+    cal = _calendar(ctx)
+    updates = _updates(args.notify_attendees)
+    try:
+        event = await _single(cal, args.event_id)
+        if event.recurring_event_id:
+            await cal.cancel_occurrence(args.event_id, send_updates=updates)
+        else:
+            await cal.delete_event(args.event_id, send_updates=updates)
+    except CalendarError as e:
+        raise ToolError(str(e)) from e
+    which = "this occurrence of " if event.recurring_event_id else ""
+    emailed = ", guests emailed" if args.notify_attendees and event.attendees else ""
+    return f"deleted {which}{describe_event(event, ctx.tz)}{emailed}"
+
+
+async def find_free_time(args: FreeTimeInput, ctx: ToolContext) -> str:
+    cal = _calendar(ctx)
+    day = args.day or local_today(ctx.tz)
+    start, end = day_bounds(day, ctx.tz, args.days)
+    start = max(start, utcnow().astimezone(ctx.tz))
+    if end <= start:
+        return "that time has already passed"
+    wake, sleep = args.wake or WAKE, args.sleep or SLEEP
+    try:
+        busy = await cal.busy(start, end)
+        slots = free_slots(busy, start, end, timedelta(minutes=args.minutes), ctx.tz, wake, sleep)
+    except (CalendarError, ValueError) as e:
+        raise ToolError(str(e)) from e
+    if not slots:
+        return f"no free {args.minutes} min slots between {wake:%H:%M} and {sleep:%H:%M}"
+    return f"free slots of at least {args.minutes} min ({wake:%H:%M} to {sleep:%H:%M}):\n" + (
+        "\n".join(f"{s:%a %d %b} {s:%H:%M} to {e:%H:%M}" for s, e in slots)
+    )
+
+
 TOOLS: list[Tool] = [
     Tool("add_goal", "Add a goal for today or a given date.", AddGoalInput, add_goal),
     Tool("list_goals", "List goals with ids and status.", ListGoalsInput, list_goals),
@@ -233,4 +463,41 @@ TOOLS: list[Tool] = [
     ),
 ]
 
-TOOLS_BY_NAME = {t.name: t for t in TOOLS}
+CALENDAR_TOOLS: list[Tool] = [
+    Tool(
+        "list_events",
+        "List calendar events with ids for a day or range, optionally searched by text. "
+        "Repeating events show one entry per occurrence.",
+        ListEventsInput,
+        list_events,
+    ),
+    Tool(
+        "create_event",
+        "Create a calendar event, timed (start and end) or all-day.",
+        CreateEventInput,
+        create_event,
+    ),
+    Tool(
+        "update_event",
+        "Change a calendar event by id: title, time, location, notes or guests. "
+        "For a repeating event this changes only that occurrence.",
+        UpdateEventInput,
+        update_event,
+    ),
+    Tool(
+        "delete_event",
+        "Delete a calendar event by id. For a repeating event this cancels only that occurrence.",
+        DeleteEventInput,
+        delete_event,
+    ),
+    Tool(
+        "find_free_time",
+        "Find open slots of a given length in the calendar, inside waking hours.",
+        FreeTimeInput,
+        find_free_time,
+    ),
+]
+
+
+def tools_for(calendar: bool) -> list[Tool]:
+    return TOOLS + CALENDAR_TOOLS if calendar else list(TOOLS)

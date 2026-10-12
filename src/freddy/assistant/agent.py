@@ -7,7 +7,7 @@ import structlog
 
 from freddy.assistant.history import NewMessage
 from freddy.assistant.prompts import SYSTEM_PROMPT
-from freddy.assistant.tools import TOOLS, TOOLS_BY_NAME, ToolContext, ToolError
+from freddy.assistant.tools import TOOLS, Tool, ToolContext, ToolError
 from freddy.db.models import MessageSource
 
 log = structlog.get_logger()
@@ -41,13 +41,15 @@ class Agent:
         effort: str = "low",
         max_tokens: int = 4096,
         max_tool_rounds: int = 8,
+        tools: list[Tool] | None = None,
     ) -> None:
         self.client = client
         self.model = model
         self.effort = effort
         self.max_tokens = max_tokens
         self.max_tool_rounds = max_tool_rounds
-        self.tool_defs = [t.definition() for t in TOOLS]
+        self.tools = {t.name: t for t in tools or TOOLS}
+        self.tool_defs = [t.definition() for t in self.tools.values()]
         self.system = [
             {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
         ]
@@ -133,7 +135,7 @@ class Agent:
         raise AgentError("That took too many steps, sir. Perhaps break it into smaller asks?")
 
     async def _run_tool(self, block: Any, ctx: ToolContext) -> dict[str, Any]:
-        tool = TOOLS_BY_NAME.get(block.name)
+        tool = self.tools.get(block.name)
         raw = block.input if isinstance(block.input, dict) else json.loads(block.input or "{}")
         try:
             if tool is None:

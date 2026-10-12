@@ -9,27 +9,31 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.types import Receive, Scope, Send
 
-from freddy.assistant.tools import TOOLS, TOOLS_BY_NAME, ToolContext, ToolError
+from freddy.assistant.tools import ToolContext, ToolError, tools_for
 from freddy.db.models import User
+from freddy.integrations.google.calendar import CalendarService
 
 log = structlog.get_logger()
 
 
 def build_mcp_server(
-    sessionmaker: async_sessionmaker[AsyncSession], owner_discord_id: int
+    sessionmaker: async_sessionmaker[AsyncSession],
+    owner_discord_id: int,
+    calendar: CalendarService | None = None,
 ) -> Server[Any]:
+    tools = {t.name: t for t in tools_for(calendar is not None)}
     tool_list = [
         types.Tool(
             name=t.name, description=t.description, input_schema=t.definition()["input_schema"]
         )
-        for t in TOOLS
+        for t in tools.values()
     ]
 
     async def list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
         return types.ListToolsResult(tools=tool_list)
 
     async def call_tool(ctx: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
-        tool = TOOLS_BY_NAME.get(params.name)
+        tool = tools.get(params.name)
         try:
             if tool is None:
                 raise ToolError(f"unknown tool {params.name}")
@@ -37,7 +41,9 @@ def build_mcp_server(
                 user = await session.scalar(select(User).where(User.discord_id == owner_discord_id))
                 if user is None:
                     raise ToolError("owner not set up")
-                text = await tool.call(dict(params.arguments or {}), ToolContext(session, user))
+                text = await tool.call(
+                    dict(params.arguments or {}), ToolContext(session, user, calendar)
+                )
             is_error = False
         except ToolError as e:
             text, is_error = f"error: {e}", True
@@ -70,10 +76,13 @@ class AuthedMCP:
 
 
 def build_mcp_app(
-    sessionmaker: async_sessionmaker[AsyncSession], owner_discord_id: int, token: str
+    sessionmaker: async_sessionmaker[AsyncSession],
+    owner_discord_id: int,
+    token: str,
+    calendar: CalendarService | None = None,
 ) -> tuple[AuthedMCP, StreamableHTTPSessionManager]:
     manager = StreamableHTTPSessionManager(
-        app=build_mcp_server(sessionmaker, owner_discord_id),
+        app=build_mcp_server(sessionmaker, owner_discord_id, calendar),
         stateless=True,
         json_response=True,
     )

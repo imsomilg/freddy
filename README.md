@@ -13,11 +13,12 @@ Just talk to it in plain English:
 - `remind me at 6pm to call mom`
 - `remind me every weekday at 7:30 to take vitamins`
 - `reminders` and `cancel reminder 3`
+- `today` or `what's on tomorrow` for goals plus calendar events
 - anything else, like `move my evening check-in to 10pm` or `how did I do this week?`
 
 Every morning and evening it checks in with your goals for the day. Sunday evening it sends a weekly summary: goals done vs set, streak and best day.
 
-Google Calendar is coming next.
+With Google Calendar connected it can also list, add, move and delete events and find free time, like `lunch with Raj tomorrow 1 to 2pm` or `find me 2 hours on friday`. The morning check-in and `/today` show the day's events next to your goals. Deletes and anything that would email guests need a yes from you first, and guests are never emailed unless you say so. For repeating events it only touches the one occurrence; change the whole series in Google Calendar.
 
 ## How it works
 

@@ -11,8 +11,10 @@ from freddy.assistant.history import ConversationStore
 from freddy.assistant.service import UserLocks
 from freddy.channels.base import Channel
 from freddy.db.models import GoalStatus, MessageSource, Reminder, ReminderKind, User
+from freddy.domain.agenda import calendar_block
 from freddy.domain.goals import GoalService, Progress, format_goal_list
 from freddy.domain.timeutil import format_local, next_cron_run, utcnow
+from freddy.integrations.google.calendar import CalendarService
 
 log = structlog.get_logger()
 
@@ -20,15 +22,27 @@ LATE_AFTER = timedelta(minutes=5)
 SKIP_CHECKIN_AFTER = timedelta(hours=3)
 
 
-async def render_checkin(session: AsyncSession, user: User, kind: ReminderKind) -> str:
+async def render_checkin(
+    session: AsyncSession,
+    user: User,
+    kind: ReminderKind,
+    calendar: CalendarService | None = None,
+) -> str:
     goals = GoalService(session, user)
     today = goals.today()
     items = await goals.for_day()
     if kind == ReminderKind.CHECKIN_MORNING:
         hello = persona.line("morning")
+        events = await calendar_block(calendar, today, goals.tz)
         if not items:
-            return f"{hello} Nothing on the list yet. What are we going for today?"
-        return f"{hello} Here's today:\n{format_goal_list(items, today)}\nAnything to add?"
+            if events is None:
+                return f"{hello} Nothing on the list yet. What are we going for today?"
+            return f"{hello} Nothing on the list yet.\n{events}\nWhat are we going for today?"
+        parts = [f"{hello} Here's today:", format_goal_list(items, today)]
+        if events is not None:
+            parts.append(events)
+        parts.append("Anything to add?")
+        return "\n".join(parts)
     hello = persona.line("evening")
     done = [g for g in items if g.status == GoalStatus.DONE]
     open_ = [g for g in items if g.status == GoalStatus.OPEN]
@@ -75,11 +89,13 @@ class Scheduler:
         channel: Channel,
         locks: UserLocks,
         interval: float = 30,
+        calendar: CalendarService | None = None,
     ) -> None:
         self.sessionmaker = sessionmaker
         self.channel = channel
         self.locks = locks
         self.interval = interval
+        self.calendar = calendar
 
     async def run(self) -> None:
         while True:
@@ -159,7 +175,7 @@ class Scheduler:
             return None
         if reminder.kind == ReminderKind.WEEKLY_SUMMARY:
             return render_weekly(await GoalService(session, user).progress(7))
-        return await render_checkin(session, user, reminder.kind)
+        return await render_checkin(session, user, reminder.kind, self.calendar)
 
     @staticmethod
     def _label(reminder: Reminder) -> str:

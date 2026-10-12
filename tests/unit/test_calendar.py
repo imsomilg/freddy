@@ -233,3 +233,35 @@ async def test_invalid_grant_alerts_and_raises(monkeypatch: pytest.MonkeyPatch) 
         await svc.list_events(START, END)
     assert str(e.value) in persona.LINES["calendar_expired"]
     assert alert.count == 1
+
+
+async def test_list_passes_search_and_reads_recurring_fields() -> None:
+    instance = {**TIMED, "id": "abc123_20261013T033000Z", "recurringEventId": "abc123"}
+    series = {**TIMED, "recurrence": ["RRULE:FREQ=WEEKLY"]}
+    svc, http = service([ok({"items": [instance, series]})])
+    one, parent = await svc.list_events(START, END, query="Raj")
+    assert query(http)["q"] == ["Raj"]
+    assert (one.recurring_event_id, one.series) == ("abc123", False)
+    assert (parent.recurring_event_id, parent.series) == (None, True)
+
+
+async def test_list_without_search_sends_no_q() -> None:
+    svc, http = service([ok({"items": []})])
+    await svc.list_events(START, END)
+    assert "q" not in query(http)
+
+
+async def test_get_event() -> None:
+    svc, http = service([ok(TIMED)])
+    event = await svc.get_event("abc123")
+    assert event.summary == "Lunch with Raj"
+    assert http.request_sequence[0][1] == "GET"
+    assert http.request_sequence[0][0].split("?")[0].endswith("/events/abc123")
+
+
+async def test_cancel_occurrence_patches_status() -> None:
+    svc, http = service([ok({**TIMED, "status": "cancelled"})])
+    await svc.cancel_occurrence("abc123_20261013T033000Z")
+    assert http.request_sequence[0][1] == "PATCH"
+    assert sent_body(http) == {"status": "cancelled"}
+    assert query(http)["sendUpdates"] == ["none"]
