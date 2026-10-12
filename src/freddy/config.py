@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     github_repo: str | None = None
     github_token: SecretStr | None = None
 
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
+    google_refresh_token: SecretStr | None = None
+    google_calendar_id: str = "primary"
+
     log_level: str = "INFO"
     log_json: bool = False
     health_port: int = 8080
@@ -47,7 +52,7 @@ class Settings(BaseSettings):
                 return "postgresql+asyncpg://" + v.removeprefix(prefix)
         return v
 
-    @field_validator("source_commit", "github_repo")
+    @field_validator("source_commit", "github_repo", "google_client_id")
     @classmethod
     def _blank_is_none(cls, v: str | None) -> str | None:
         return v.strip() or None if v else None

@@ -13,6 +13,7 @@ from freddy.channels.discord_adapter import DiscordChannel
 from freddy.config import get_settings
 from freddy.db.engine import make_engine, make_sessionmaker
 from freddy.domain.users import ensure_owner
+from freddy.integrations.google.auth import AuthAlert, check_calendar, credentials_from_settings
 from freddy.logging import setup_logging
 from freddy.mcp_server import build_mcp_app
 from freddy.scheduler.loop import Scheduler
@@ -61,6 +62,23 @@ async def main() -> None:
     if hub and not mcp:
         log.warning("bridge.no_mcp_token", hint="laptop Claude won't have Freddy's tools")
 
+    google_creds = credentials_from_settings(settings)
+
+    async def on_first_ready() -> None:
+        await announce_boot(
+            sessionmaker,
+            channel,
+            locks,
+            settings.owner_discord_id,
+            settings.source_commit,
+            settings.github_repo,
+            settings.github_token.get_secret_value() if settings.github_token else None,
+        )
+        if google_creds:
+            await check_calendar(
+                google_creds, settings.google_calendar_id, settings.timezone, google_alert
+            )
+
     locks = UserLocks()
     assistant = Assistant(sessionmaker, locks, agent=agent, bridge=hub)
     channel = DiscordChannel(
@@ -70,16 +88,9 @@ async def main() -> None:
         owner_id=settings.owner_discord_id,
         handler=assistant.handle,
         commands=SlashCommands(sessionmaker, locks),
-        on_first_ready=lambda: announce_boot(
-            sessionmaker,
-            channel,
-            locks,
-            settings.owner_discord_id,
-            settings.source_commit,
-            settings.github_repo,
-            settings.github_token.get_secret_value() if settings.github_token else None,
-        ),
+        on_first_ready=on_first_ready,
     )
+    google_alert = AuthAlert(sessionmaker, channel)
     scheduler = Scheduler(sessionmaker, channel, locks)
     web = make_server(build_app(channel, hub, mcp), settings.health_port)
 
@@ -94,6 +105,7 @@ async def main() -> None:
         api_agent=agent is not None,
         bridge=hub is not None,
         mcp=mcp is not None,
+        calendar=google_creds is not None,
         commit=settings.source_commit,
     )
     tasks = [
