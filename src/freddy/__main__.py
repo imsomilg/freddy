@@ -5,6 +5,7 @@ import anthropic
 import structlog
 
 from freddy.assistant.agent import Agent
+from freddy.assistant.commands import SlashCommands
 from freddy.assistant.service import Assistant, UserLocks
 from freddy.bridge.hub import BridgeHub
 from freddy.channels.discord_adapter import DiscordChannel
@@ -66,6 +67,7 @@ async def main() -> None:
         channel_id=settings.discord_channel_id,
         owner_id=settings.owner_discord_id,
         handler=assistant.handle,
+        commands=SlashCommands(sessionmaker, locks),
     )
     scheduler = Scheduler(sessionmaker, channel, locks)
     web = make_server(build_app(channel, hub, mcp), settings.health_port)

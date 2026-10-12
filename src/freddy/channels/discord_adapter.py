@@ -1,6 +1,11 @@
+from collections.abc import Awaitable
+from typing import Literal
+
 import discord
 import structlog
+from discord import app_commands
 
+from freddy.assistant.commands import SlashCommands
 from freddy.channels.base import MessageHandler, chunk
 
 log = structlog.get_logger()
@@ -17,6 +22,7 @@ class DiscordChannel:
         channel_id: int,
         owner_id: int,
         handler: MessageHandler,
+        commands: SlashCommands | None = None,
     ) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
@@ -28,13 +34,22 @@ class DiscordChannel:
         self.handler = handler
         self.client.event(self.on_ready)
         self.client.event(self.on_message)
+        self.tree = app_commands.CommandTree(self.client)
+        self.tree.interaction_check = self._interaction_allowed  # type: ignore[method-assign]
+        self.commands = commands
+        if commands is not None:
+            self._register(commands)
 
     @property
     def ready(self) -> bool:
         return self.client.is_ready() and not self.client.is_closed()
 
     async def start(self) -> None:
-        await self.client.start(self.token)
+        await self.client.login(self.token)
+        if self.commands is not None:
+            synced = await self.tree.sync(guild=discord.Object(self.guild_id))
+            log.info("discord.commands_synced", count=len(synced))
+        await self.client.connect()
 
     async def stop(self) -> None:
         await self.client.close()
@@ -67,6 +82,70 @@ class DiscordChannel:
         await message.reply(parts[0], mention_author=False)
         for part in parts[1:]:
             await message.channel.send(part)
+
+    def _interaction_ok(self, interaction: discord.Interaction) -> bool:
+        return (
+            interaction.user.id == self.owner_id
+            and interaction.guild_id == self.guild_id
+            and interaction.channel_id == self.channel_id
+        )
+
+    async def _interaction_allowed(self, interaction: discord.Interaction) -> bool:
+        if self._interaction_ok(interaction):
+            return True
+        if interaction.type is discord.InteractionType.application_command:
+            await interaction.response.send_message(
+                "I only answer my owner, in the freddy channel.", ephemeral=True
+            )
+        return False
+
+    def _register(self, commands: SlashCommands) -> None:
+        guild = discord.Object(self.guild_id)
+
+        @self.tree.command(name="goals", description="Today's goals", guild=guild)
+        async def goals(interaction: discord.Interaction) -> None:
+            await self._respond(interaction, commands.goals(interaction.user.id))
+
+        @self.tree.command(name="done", description="Mark a goal done", guild=guild)
+        @app_commands.describe(goal="Pick one of today's open goals")
+        async def done(interaction: discord.Interaction, goal: int) -> None:
+            await self._respond(interaction, commands.done(interaction.user.id, goal))
+
+        @done.autocomplete("goal")
+        async def done_goal(
+            interaction: discord.Interaction, current: str
+        ) -> list[app_commands.Choice[int]]:
+            open_goals = await commands.open_goals(interaction.user.id, str(current))
+            return [
+                app_commands.Choice(name=f"#{gid} {title}"[:100], value=gid)
+                for gid, title in open_goals[:25]
+            ]
+
+        @self.tree.command(name="remind", description="Set a reminder", guild=guild)
+        @app_commands.describe(
+            when="in 20 min, at 6pm, tomorrow at 9:30, every weekday at 7:30",
+            what="What to remind you about",
+        )
+        async def remind(interaction: discord.Interaction, when: str, what: str) -> None:
+            await self._respond(interaction, commands.remind(interaction.user.id, when, what))
+
+        @self.tree.command(name="reminders", description="Active reminders", guild=guild)
+        async def reminders(interaction: discord.Interaction) -> None:
+            await self._respond(interaction, commands.reminders(interaction.user.id))
+
+        @self.tree.command(name="checkin", description="Run a check-in now", guild=guild)
+        @app_commands.describe(which="Defaults to whichever fits the time of day")
+        async def checkin(
+            interaction: discord.Interaction,
+            which: Literal["morning", "evening"] | None = None,
+        ) -> None:
+            await self._respond(interaction, commands.checkin(interaction.user.id, which))
+
+    async def _respond(self, interaction: discord.Interaction, reply: Awaitable[str]) -> None:
+        await interaction.response.defer(thinking=True)
+        parts = chunk(await reply) or ["👍"]
+        for part in parts:
+            await interaction.followup.send(part)
 
     async def _channel(self) -> discord.abc.Messageable:
         channel = self.client.get_channel(self.channel_id)
