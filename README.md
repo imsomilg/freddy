@@ -18,7 +18,7 @@ Just talk to it in plain English:
 
 Every morning and evening it checks in with your goals for the day. Sunday evening it sends a weekly summary: goals done vs set, streak and best day.
 
-With Google Calendar connected it can also list, add, move and delete events and find free time, like `lunch with Raj tomorrow 1 to 2pm` or `find me 2 hours on friday`. The morning check-in and `/today` show the day's events next to your goals. Deletes and anything that would email guests need a yes from you first, and guests are never emailed unless you say so. For repeating events it only touches the one occurrence; change the whole series in Google Calendar.
+With Google Calendar connected it can also list, add, move and delete events and find free time, like `lunch with Raj tomorrow 1 to 2pm` or `find me 2 hours on friday`. The morning check-in and `/today` show the day's events next to your goals. Deletes and anything that would email guests need a yes from you first, and guests are never emailed unless you say so. For repeating events it only touches the one occurrence; change the whole series in Google Calendar. It also pings you 10 minutes before each timed event. It checks the calendar every 5 minutes, so moved events move their ping and cancelled ones drop it. No pings for all-day events or ones you declined.
 
 ## How it works
 
@@ -77,6 +77,7 @@ CI runs the same checks on every PR, plus a build of the runtime image.
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional. Desktop app OAuth client, see Google Calendar setup |
 | `GOOGLE_REFRESH_TOKEN` | Optional. Printed by the auth script. Calendar stays off unless all three are set |
 | `GOOGLE_CALENDAR_ID` | Defaults to `primary` |
+| `EVENT_PING_MINUTES` | How many minutes before an event Freddy pings you. Default `10` |
 
 ## Boot message
 

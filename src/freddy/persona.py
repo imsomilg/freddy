@@ -88,6 +88,11 @@ LINES: dict[str, tuple[str, ...]] = {
         "Google Calendar is having a moment, sir. Try again shortly.",
         "The calendar isn't answering, sir. Shall we try again shortly?",
     ),
+    "event_ping": (
+        "Your next engagement, sir:",
+        "A word in your ear, sir. Coming up:",
+        "If I may, sir. Shortly:",
+    ),
     "week_sweep": (
         "Clean sweep 🎉 I've taken the liberty of being impressed, sir.",
         "Clean sweep 🎉 Frankly, sir, the bar is now unreasonably high.",

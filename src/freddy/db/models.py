@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     Time,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -126,3 +127,20 @@ class AppState(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class EventPing(Base):
+    __tablename__ = "event_pings"
+    __table_args__ = (
+        UniqueConstraint("event_id", "start_at", name="uq_event_pings_event_start"),
+        Index("ix_event_pings_due", "sent_at", "ping_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    event_id: Mapped[str] = mapped_column(Text)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    summary: Mapped[str] = mapped_column(Text)
+    location: Mapped[str | None] = mapped_column(Text)
+    ping_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

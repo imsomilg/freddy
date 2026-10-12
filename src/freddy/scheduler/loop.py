@@ -1,5 +1,5 @@
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -10,7 +10,7 @@ from freddy import persona
 from freddy.assistant.history import ConversationStore
 from freddy.assistant.service import UserLocks
 from freddy.channels.base import Channel
-from freddy.db.models import GoalStatus, MessageSource, Reminder, ReminderKind, User
+from freddy.db.models import EventPing, GoalStatus, MessageSource, Reminder, ReminderKind, User
 from freddy.domain.agenda import calendar_block
 from freddy.domain.goals import GoalService, Progress, format_goal_list
 from freddy.domain.timeutil import format_local, next_cron_run, utcnow
@@ -59,6 +59,16 @@ async def render_checkin(
     parts.append(f"Still open:\n{format_goal_list(open_, today)}")
     parts.append("What got done, sir?")
     return "\n".join(parts)
+
+
+def render_ping(ping: EventPing, tz: ZoneInfo, now: datetime) -> str:
+    minutes = round((ping.start_at - now).total_seconds() / 60)
+    when = f"in {minutes} min" if minutes > 0 else "starting now"
+    start = ping.start_at.astimezone(tz)
+    text = f"📅 {persona.line('event_ping')} {ping.summary} at {start:%H:%M} ({when})"
+    if ping.location:
+        text += f", {ping.location}"
+    return text
 
 
 def render_weekly(progress: Progress) -> str | None:
@@ -119,9 +129,46 @@ class Scheduler:
                     .limit(50)
                 )
             )
+            pings = list(
+                await session.execute(
+                    select(EventPing.id, User.discord_id)
+                    .join(User, User.id == EventPing.user_id)
+                    .where(EventPing.sent_at.is_(None), EventPing.ping_at <= now)
+                    .order_by(EventPing.ping_at)
+                    .limit(50)
+                )
+            )
         for reminder_id, discord_id in due:
             async with self.locks.get(discord_id):
                 await self._fire(reminder_id)
+        for ping_id, discord_id in pings:
+            async with self.locks.get(discord_id):
+                await self._ping(ping_id)
+
+    async def _ping(self, ping_id: int) -> None:
+        now = utcnow()
+        async with self.sessionmaker() as session, session.begin():
+            ping = await session.scalar(
+                select(EventPing)
+                .where(EventPing.id == ping_id, EventPing.sent_at.is_(None))
+                .with_for_update(skip_locked=True)
+            )
+            if ping is None:
+                return
+            if ping.start_at <= now:
+                # Already started, so the ping is useless. Sync never re-adds past events.
+                await session.delete(ping)
+                log.info("scheduler.ping_skipped", ping_id=ping.id)
+                return
+            user = await session.get(User, ping.user_id)
+            assert user is not None
+            text = render_ping(ping, ZoneInfo(user.timezone), now)
+            await self.channel.notify(text)
+            await ConversationStore(session, user).append_exchange(
+                "(scheduled: event ping)", text, MessageSource.SCHEDULER
+            )
+            ping.sent_at = now
+            log.info("scheduler.ping_sent", ping_id=ping.id)
 
     async def _fire(self, reminder_id: int) -> None:
         now = utcnow()

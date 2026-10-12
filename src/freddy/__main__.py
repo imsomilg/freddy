@@ -18,6 +18,7 @@ from freddy.integrations.google.auth import AuthAlert, check_calendar, credentia
 from freddy.integrations.google.calendar import CalendarService
 from freddy.logging import setup_logging
 from freddy.mcp_server import build_mcp_app
+from freddy.scheduler.calendar_sync import CalendarSync
 from freddy.scheduler.loop import Scheduler
 from freddy.web import build_app, make_server
 
@@ -127,6 +128,11 @@ async def main() -> None:
         asyncio.create_task(web.serve(), name="web"),
         asyncio.create_task(stop.wait(), name="stop"),
     ]
+    if calendar is not None:
+        sync = CalendarSync(
+            sessionmaker, calendar, settings.owner_discord_id, settings.event_ping_minutes
+        )
+        tasks.append(asyncio.create_task(sync.run(), name="calendar_sync"))
     try:
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in done:
