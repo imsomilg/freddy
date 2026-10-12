@@ -16,6 +16,8 @@ Just talk to it in plain English:
 - `today` or `what's on tomorrow` for goals plus calendar events
 - anything else, like `move my evening check-in to 10pm` or `how did I do this week?`
 
+Slash commands for the quick stuff: `/goals`, `/today`, `/done`, `/remind`, `/reminders`, `/checkin`.
+
 Every morning and evening it checks in with your goals for the day. Sunday evening it sends a weekly summary: goals done vs set, streak and best day.
 
 With Google Calendar connected it can also list, add, move and delete events and find free time, like `lunch with Raj tomorrow 1 to 2pm` or `find me 2 hours on friday`. The morning check-in and `/today` show the day's events next to your goals. Deletes and anything that would email guests need a yes from you first, and guests are never emailed unless you say so. For repeating events it only touches the one occurrence; change the whole series in Google Calendar. It also pings you 10 minutes before each timed event. It checks the calendar every 5 minutes, so moved events move their ping and cancelled ones drop it. No pings for all-day events or ones you declined.
@@ -67,7 +69,11 @@ CI runs the same checks on every PR, plus a build of the runtime image.
 | `ANTHROPIC_API_KEY` | Optional. API key, used when the laptop bridge is offline |
 | `BRIDGE_TOKEN` | Optional. Shared secret for the laptop bridge |
 | `MCP_TOKEN` | Optional. Secret the laptop uses to call Freddy's tools |
+| `BRIDGE_TIMEOUT` | Seconds to wait for the laptop before falling back. Default `150` |
 | `CLAUDE_MODEL` | Defaults to `claude-sonnet-5-5` |
+| `CLAUDE_EFFORT` | Defaults to `low` |
+| `CLAUDE_MAX_TOOL_ROUNDS` | Max tool rounds per message. Default `8` |
+| `CLAUDE_MAX_TOKENS` | Max tokens per reply. Default `4096` |
 | `DATABASE_URL` | Postgres url, `postgres://` works too |
 | `TIMEZONE` | Like `Asia/Kolkata` |
 | `MORNING_CHECKIN` / `EVENING_CHECKIN` | Defaults `08:00` and `21:00` |
@@ -78,12 +84,73 @@ CI runs the same checks on every PR, plus a build of the runtime image.
 | `GOOGLE_REFRESH_TOKEN` | Optional. Printed by the auth script. Calendar stays off unless all three are set |
 | `GOOGLE_CALENDAR_ID` | Defaults to `primary` |
 | `EVENT_PING_MINUTES` | How many minutes before an event Freddy pings you. Default `10` |
+| `LOG_LEVEL` | Defaults to `INFO` |
+| `LOG_JSON` | `true` for JSON logs. Default `false` |
+| `HEALTH_PORT` | Port for `/healthz`, `/bridge` and `/mcp/`. Default `8080`. Leave it, the Dockerfile health check expects 8080 |
+
+`SOURCE_COMMIT` is set by Coolify at build time, you don't set it yourself.
+
+## Self-hosting
+
+It's built for one person: it only answers its owner, in one channel. I run it on [Coolify](https://coolify.io), so the steps below are for Coolify. You need a Discord server you own, a Claude API key and a Coolify server. Google Calendar and the laptop bridge are optional.
+
+UIs change. These steps were checked against the official docs in October 2026, links at the bottom.
+
+### 1. Discord bot
+
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications), click **Create App**, give it a name and click **Create**.
+2. **Bot** page:
+   - Under **Token**, click **Reset Token** and copy it. You only see it once. That's `DISCORD_TOKEN`.
+   - Untick **Public Bot**, so only you can add it to servers.
+   - Under **Privileged Gateway Intents**, turn on **Message Content Intent**. Freddy reads your messages, so it needs this. No verification needed under 100 servers.
+3. **Installation** page:
+   - **Installation Contexts:** keep **Guild Install**, untick **User Install**.
+   - **Install Link:** **Discord Provided Link**.
+   - **Default Install Settings**, Guild Install: scopes `applications.commands` and `bot`. Permissions **View Channels**, **Send Messages** and **Read Message History** (Freddy replies to your message, and Discord needs that permission for replies).
+4. Open the install link, pick **Add to server**, choose your server and authorize.
+5. Make a channel for it, like `#freddy`. If it's private, add the bot to it.
+6. In Discord: **User Settings** > **Advanced** > turn on **Developer Mode**. Then:
+   - right-click the server icon > **Copy Server ID**, that's `DISCORD_GUILD_ID`
+   - right-click the channel > **Copy Channel ID**, that's `DISCORD_CHANNEL_ID`
+   - right-click yourself > **Copy User ID**, that's `OWNER_DISCORD_ID`
+
+### 2. Claude API key
+
+1. Sign in at the [Claude Console](https://platform.claude.com), go to **Settings** > **API keys**, click **Create key** and copy it. It's shown only once. That's `ANTHROPIC_API_KEY`.
+2. Optional but smart: **Settings** > **Billing**, under **Spend limits** click **Set limit** and pick a monthly cap.
+
+### 3. Postgres on Coolify
+
+1. In your project and environment, click **New Resource**, then **PostgreSQL** under **Databases**.
+2. Pick the server and network, then the image. Coolify defaults to PostgreSQL 18; pick 17, that's what Freddy is tested on.
+3. Click **Start** and wait until it's healthy.
+4. Copy **Postgres URL (internal)**. That's `DATABASE_URL`. The `postgres://` form is fine, Freddy converts it.
+
+### 4. The app on Coolify
+
+1. Fork this repo.
+2. In the same project and environment, click **+ New**:
+   - public fork: **Public Repository**, paste your fork's url, **Check Repository**
+   - private fork: set up a GitHub App source first (**Sources** > **New source** > **GitHub App**), then **Private Repository (with GitHub App)**
+3. Set **Build pack** to **Dockerfile**, **Base Directory** `/`, **Dockerfile Location** `/Dockerfile`, **Ports Exposes** `8080`. Click **Continue**.
+4. Open **Environment Variables**, switch to **Developer view**, paste `.env.example`, fill it in and save (see Config). Required: the four Discord values and `DATABASE_URL`. Also set `ANTHROPIC_API_KEY` and your `TIMEZONE`.
+5. Click **Deploy** and watch the logs. You should see the Alembic migrations, `freddy.starting` and `discord.ready`, and Freddy posts a greeting in the channel.
+
+Keep it to one replica, Discord only allows one connection per bot. No domain needed unless you use the laptop bridge.
+
+### 5. Smoke test
+
+In your channel:
+
+1. `add goal: test freddy`, then `goals`
+2. `remind me in 2 min to stretch`, and wait for the ping
+3. `how am I doing this week?` goes to Claude
 
 ## Boot message
 
 Every time Freddy starts it posts a greeting in the channel. If the commit changed since the last boot it says what's new, otherwise it says it was just a restart.
 
-It reads the commit from `SOURCE_COMMIT`, which Coolify passes in at build time (see Deploy, step 5). Without `GITHUB_REPO` it shows the short sha instead of the commit titles.
+It reads the commit from `SOURCE_COMMIT`. In Coolify, open the app's **Advanced** > **Build** and set **Source commit availability** to **Available during build**, so it's baked into the image. Without `GITHUB_REPO` it shows the short sha instead of the commit titles.
 
 ## Laptop bridge
 
@@ -93,10 +160,10 @@ Lets Freddy use Claude Code on my laptop (my own subscription) whenever the lapt
 Discord -> Freddy (VPS) -> no fast path match -> laptop bridge -> claude -p -> Freddy's tools (MCP) -> reply
 ```
 
-The laptop connects out to Freddy over a WebSocket, so there's nothing to open on the router. Claude on the laptop gets no shell or file tools, only Freddy's goal and reminder tools.
+The laptop connects out to Freddy over a WebSocket, so there's nothing to open on the router. Claude on the laptop gets no shell or file tools, only Freddy's goal, reminder and calendar tools.
 
 **On the server**
-1. Give the app a domain in Coolify, for example `https://freddy.example.com` (port 8080).
+1. Give the app a domain. At your DNS provider, point an `A` record at the Coolify server (ports 80 and 443 need to reach it). In Coolify, open the app, **Domains** > **Add domain**: protocol `https`, your domain, port `8080`. Redeploy after.
 2. Generate two secrets: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`
 3. Set them as `BRIDGE_TOKEN` and `MCP_TOKEN`, then redeploy.
 
@@ -110,15 +177,7 @@ journalctl --user -u freddy-bridge -f
 
 `/healthz` shows `"bridge": "online"` when the laptop is connected. If the laptop sleeps, Freddy notices within about 45 seconds and falls back.
 
-This runs the official, unmodified Claude Code just for me. Anthropic's terms don't clearly allow or ban this, so keep it personal and low volume.
-
-## Discord bot setup
-
-1. Developer Portal, create an app.
-2. **Bot** page: reset and copy the token, turn on **Message Content Intent**.
-3. **Installation** page: Guild Install, scopes `bot` and `applications.commands`, permissions View Channels, Send Messages, Read Message History, Embed Links.
-4. Open the install link and add it to your server.
-5. Turn on Developer Mode in Discord and copy the server, channel and your user id.
+**Personal use only.** Use your own subscription on your own machine, never set it up for anyone else. It runs the official, unmodified Claude Code, but Anthropic's terms don't clearly allow or ban this, so keep it low volume and read [Claude Code's legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance) yourself. If in doubt, skip it and use `ANTHROPIC_API_KEY`.
 
 ## Google Calendar setup
 
@@ -147,17 +206,13 @@ Put the three values in `.env` (or Coolify) and restart. On boot Freddy logs `go
 
 If the token ever stops working (revoked, or unused for 6 months), Freddy says so in the channel once. Run the script again and swap the token.
 
-## Deploy
+## Docs I checked
 
-I run it on Coolify.
+- Discord: [getting started](https://docs.discord.com/developers/quick-start/getting-started), [gateway intents](https://docs.discord.com/developers/topics/gateway), [message permissions](https://docs.discord.com/developers/resources/message), [finding ids](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID)
+- Claude: [API keys](https://platform.claude.com/docs/en/get-api-key), [spend limits](https://platform.claude.com/docs/en/api/rate-limits), [Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)
+- Coolify: [Dockerfile build pack](https://coolify.io/docs/applications/build-packs/dockerfile), [PostgreSQL](https://coolify.io/docs/databases/postgresql), [environment variables](https://coolify.io/docs/knowledge-base/environment-variables), [domains](https://coolify.io/docs/knowledge-base/domains), [GitHub App](https://coolify.io/docs/applications/sources/github/app), [public repository](https://coolify.io/docs/applications/sources/github/public-repository)
+- Google: [Calendar Python quickstart](https://developers.google.com/workspace/calendar/api/quickstart/python), [create a project](https://developers.google.com/workspace/guides/create-project), [OAuth consent](https://developers.google.com/workspace/guides/configure-oauth-consent), [refresh token expiry](https://developers.google.com/identity/protocols/oauth2), [OAuth clients](https://support.google.com/cloud/answer/15549257)
 
-1. Create an app from this repo with the Dockerfile build pack and set **Ports Exposes** to `8080`.
-2. Add a Postgres database and use its internal url as `DATABASE_URL`.
-3. Give the app a domain so the laptop can reach `/bridge` and `/mcp/`:
-   - At your DNS provider, point an `A` record for the domain at the Coolify server. Ports 80 and 443 need to reach the server for the certificate.
-   - In Coolify, open the app, then **Domains**, then **Add domain**. Protocol `https`, your domain, port `8080`.
-4. Set the env vars above. Generate `BRIDGE_TOKEN` and `MCP_TOKEN` (see Laptop bridge). `ANTHROPIC_API_KEY` is optional. Add `GITHUB_REPO` and `GITHUB_TOKEN` if you want commit titles in the boot message, and the `GOOGLE_*` vars for the calendar.
-5. In **Advanced**, under **Build**, set **Source commit availability** to **Available during build**. That bakes the commit into the image so the boot message knows what changed.
-6. Deploy, and redeploy after any domain change.
+## License
 
-Keep it to one replica, Discord only allows one connection per bot.
+MIT, see [LICENSE](LICENSE).
