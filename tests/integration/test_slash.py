@@ -1,7 +1,8 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from freddy.assistant.commands import SlashCommands
+from freddy import persona
+from freddy.assistant.commands import UNKNOWN_USER, SlashCommands
 from freddy.assistant.service import UserLocks
 from freddy.db.engine import make_sessionmaker
 from freddy.db.models import Goal, GoalStatus, Message, Reminder, User
@@ -22,7 +23,7 @@ async def add_goal(engine: AsyncEngine, owner: User, title: str) -> int:
 
 async def test_goals_and_done(engine: AsyncEngine, committed_owner: User) -> None:
     c = slash(engine)
-    assert (await c.goals(9001)).startswith("No goals for today")
+    assert await c.goals(9001) in persona.LINES["no_goals"]
     gid = await add_goal(engine, committed_owner, "stretch")
     await add_goal(engine, committed_owner, "read 20 pages")
 
@@ -39,7 +40,7 @@ async def test_goals_and_done(engine: AsyncEngine, committed_owner: User) -> Non
 
 
 async def test_done_unknown_goal(engine: AsyncEngine, committed_owner: User) -> None:
-    assert await slash(engine).done(9001, 999999) == "I don't see goal #999999."
+    assert await slash(engine).done(9001, 999999) == "I can't find goal #999999, sir."
 
 
 async def test_remind_parses_and_lists(engine: AsyncEngine, committed_owner: User) -> None:
@@ -57,15 +58,15 @@ async def test_remind_parses_and_lists(engine: AsyncEngine, committed_owner: Use
 
 async def test_remind_bad_time(engine: AsyncEngine, committed_owner: User) -> None:
     reply = await slash(engine).remind(9001, "whenever", "stand up")
-    assert reply.startswith("Couldn't read `whenever`")
+    assert "couldn't read `whenever`" in reply
 
 
 async def test_checkin(engine: AsyncEngine, committed_owner: User) -> None:
     c = slash(engine)
-    assert (await c.checkin(9001, "morning")).startswith("Morning!")
-    assert (await c.checkin(9001, "evening")).startswith("Evening!")
+    assert (await c.checkin(9001, "morning")).startswith(persona.LINES["morning"])
+    assert (await c.checkin(9001, "evening")).startswith(persona.LINES["evening"])
 
 
 async def test_unknown_user(engine: AsyncEngine) -> None:
-    assert await slash(engine).goals(1) == "I don't know you yet."
+    assert await slash(engine).goals(1) == UNKNOWN_USER
     assert await slash(engine).open_goals(1, "") == []

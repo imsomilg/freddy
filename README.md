@@ -71,6 +71,14 @@ CI runs the same checks on every PR, plus a build of the runtime image.
 | `TIMEZONE` | Like `Asia/Kolkata` |
 | `MORNING_CHECKIN` / `EVENING_CHECKIN` | Defaults `08:00` and `21:00` |
 | `WEEKLY_SUMMARY_DELAY` | Minutes after the Sunday evening check-in for the weekly summary. Default `30` |
+| `GITHUB_REPO` | Optional. Like `you/freddy`, so the boot message can list what changed |
+| `GITHUB_TOKEN` | Optional. Fine-grained token with Contents read on that repo. Only needed while it's private |
+
+## Boot message
+
+Every time Freddy starts it posts a greeting in the channel. If the commit changed since the last boot it says what's new, otherwise it says it was just a restart.
+
+It reads the commit from `SOURCE_COMMIT`. On Coolify, set Advanced > Build > Source commit availability to "Available during build" so it gets baked into the image. Without `GITHUB_REPO` it shows the short sha instead of the commit titles.
 
 ## Laptop bridge
 

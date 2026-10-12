@@ -70,13 +70,15 @@ class Agent:
             return await self.client.beta.messages.create(**self._params(messages))
         except anthropic.RateLimitError as e:
             log.warning("claude.rate_limited", error=str(e))
-            raise AgentError("I'm being rate limited right now, try again in a minute.") from e
+            raise AgentError(
+                "I'm being rate limited, sir. Give me a minute to compose myself."
+            ) from e
         except anthropic.APIStatusError as e:
             log.error("claude.api_error", status=e.status_code, error=str(e))
-            raise AgentError("Claude had a problem with that one. Try again in a bit?") from e
+            raise AgentError("Claude had trouble with that one, sir. Try again in a moment?") from e
         except anthropic.APIConnectionError as e:
             log.error("claude.connection_error", error=str(e))
-            raise AgentError("Can't reach Claude right now. Try again in a bit?") from e
+            raise AgentError("I can't reach Claude right now, sir. Try again in a moment?") from e
 
     async def run(
         self, history: list[dict[str, Any]], user_content: str, ctx: ToolContext
@@ -99,7 +101,7 @@ class Agent:
             )
 
             if resp.stop_reason == "refusal":
-                raise AgentError("I can't help with that one.")
+                raise AgentError("I'm afraid I can't help with that one, sir.")
 
             content = [_dump(b) for b in resp.content]
             messages.append({"role": "assistant", "content": content})
@@ -117,7 +119,7 @@ class Agent:
             if resp.stop_reason != "tool_use" or not tool_uses:
                 text = "\n".join(b.text for b in resp.content if b.type == "text").strip()
                 if resp.stop_reason == "max_tokens" and not text:
-                    raise AgentError("That reply got too long. Try asking a smaller piece?")
+                    raise AgentError("That reply got rather long, sir. Perhaps a smaller piece?")
                 new[0].tool_names = tool_names or None
                 return TurnResult(reply=text or "👍", messages=new, tool_names=tool_names)
 
@@ -128,7 +130,7 @@ class Agent:
             messages.append({"role": "user", "content": results})
             new.append(NewMessage("user", results, MessageSource.CLAUDE))
 
-        raise AgentError("That took too many steps. Try breaking it into smaller asks?")
+        raise AgentError("That took too many steps, sir. Perhaps break it into smaller asks?")
 
     async def _run_tool(self, block: Any, ctx: ToolContext) -> dict[str, Any]:
         tool = TOOLS_BY_NAME.get(block.name)

@@ -19,12 +19,12 @@ from freddy.fastpath.router import try_fastpath
 log = structlog.get_logger()
 
 OFFLINE_REPLY = (
-    "My brain's offline right now (laptop's off). I can still do:\n"
+    "My apologies, sir, my brain is offline (the laptop's off). I can still manage:\n"
     "`add goal: X`, `goals`, `done X`, `reminders`, `cancel reminder 3`, "
     "`remind me in 20 min / at 6pm / every weekday at 7:30 to X`"
 )
-TIMEOUT_REPLY = "My brain on the laptop took too long on that one. Try again?"
-FAILED_REPLY = "Claude on the laptop hit an error with that one. Try again in a bit?"
+TIMEOUT_REPLY = "That one took me far too long, sir. Shall we try again?"
+FAILED_REPLY = "My brain on the laptop stumbled on that one, sir. Try again in a moment?"
 
 
 class UserLocks:
@@ -61,14 +61,14 @@ class Assistant:
                 return e.user_message
             except Exception:
                 log.exception("assistant.failed")
-                return "Something broke on my side. Check the logs."
+                return "Something broke on my side, sir. My apologies. The logs will know more."
 
     async def _handle(self, discord_id: int, text: str) -> str:
         now = utcnow()
         async with self.sessionmaker() as session, session.begin():
             user = await session.scalar(select(User).where(User.discord_id == discord_id))
             if user is None:
-                return "I don't know you yet."
+                return "I don't believe we've been introduced."
             content = stamp(text, now, ZoneInfo(user.timezone))
             store = ConversationStore(session, user)
 

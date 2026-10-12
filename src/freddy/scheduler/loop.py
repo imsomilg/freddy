@@ -6,6 +6,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from freddy import persona
 from freddy.assistant.history import ConversationStore
 from freddy.assistant.service import UserLocks
 from freddy.channels.base import Channel
@@ -24,20 +25,25 @@ async def render_checkin(session: AsyncSession, user: User, kind: ReminderKind) 
     today = goals.today()
     items = await goals.for_day()
     if kind == ReminderKind.CHECKIN_MORNING:
+        hello = persona.line("morning")
         if not items:
-            return "Morning! Nothing on the list yet. What are you going for today?"
-        return f"Morning! Here's today:\n{format_goal_list(items, today)}\nAnything to add?"
+            return f"{hello} Nothing on the list yet. What are we going for today?"
+        return f"{hello} Here's today:\n{format_goal_list(items, today)}\nAnything to add?"
+    hello = persona.line("evening")
     done = [g for g in items if g.status == GoalStatus.DONE]
     open_ = [g for g in items if g.status == GoalStatus.OPEN]
     if not items:
-        return "Evening! No goals today. Want to set some for tomorrow?"
+        return f"{hello} No goals today. Shall we set some for tomorrow?"
     if not open_:
-        return f"Evening! You knocked out all {len(done)} goals today 🎉 Anything for tomorrow?"
-    parts = ["Evening check-in."]
+        return (
+            f"{hello} You knocked out all {len(done)} goals today 🎉 "
+            "A performance worthy of applause. Anything for tomorrow?"
+        )
+    parts = [hello]
     if done:
         parts.append(f"Done:\n{format_goal_list(done, today)}")
     parts.append(f"Still open:\n{format_goal_list(open_, today)}")
-    parts.append("What got done?")
+    parts.append("What got done, sir?")
     return "\n".join(parts)
 
 
@@ -45,17 +51,20 @@ def render_weekly(progress: Progress) -> str | None:
     if progress.total == 0:
         return None
     pct = round(100 * progress.done / progress.total)
-    lines = [f"Week's wrap! You got {progress.done} of {progress.total} goals done ({pct}%)."]
+    lines = [f"Your weekly report, sir. {progress.done} of {progress.total} goals done ({pct}%)."]
     best = max(progress.per_day, key=lambda d: (d[1], d[0]))
     if best[1] > 0:
         lines.append(f"Best day: {best[0]:%A} with {best[1]} done.")
     if progress.streak > 1:
-        lines.append(f"Streak: {progress.streak} days 🔥")
+        tail = " Remarkable, sir." if progress.streak >= 5 else ""
+        lines.append(f"Streak: {progress.streak} days 🔥{tail}")
     lines.append(" · ".join(f"{d:%a} {done}/{total}" for d, done, total in progress.per_day))
     if progress.done == progress.total:
-        lines.append("Clean sweep 🎉 Same again next week?")
+        lines.append(persona.line("week_sweep"))
+    elif pct >= 60:
+        lines.append(persona.line("week_strong"))
     else:
-        lines.append("What are we going for next week?")
+        lines.append(persona.line("week_quiet"))
     return "\n".join(lines)
 
 
@@ -142,9 +151,9 @@ class Scheduler:
         tz: ZoneInfo,
     ) -> str | None:
         if reminder.kind == ReminderKind.REMINDER:
-            text = f"⏰ {reminder.text}"
+            text = f"⏰ {persona.line('reminder')} {reminder.text}"
             if late > LATE_AFTER:
-                text += f" (late, was due {format_local(reminder.next_run_at, tz)})"
+                text += f" (my apologies, this was due {format_local(reminder.next_run_at, tz)})"
             return text
         if late > SKIP_CHECKIN_AFTER:
             return None

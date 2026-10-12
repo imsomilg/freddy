@@ -23,11 +23,11 @@ from freddy.scheduler.loop import render_checkin
 
 log = structlog.get_logger()
 
-UNKNOWN_USER = "I don't know you yet."
-BROKEN = "Something broke on my side. Check the logs."
+UNKNOWN_USER = "I don't believe we've been introduced."
+BROKEN = "Something broke on my side, sir. My apologies. The logs will know more."
 REMIND_HELP = (
-    "Couldn't read `{when}` as a time. Try `in 20 min`, `at 6pm`, `tomorrow at 9:30`, "
-    "`friday at 18:00` or `every weekday at 7:30`."
+    "Forgive me, sir, I couldn't read `{when}` as a time. Try `in 20 min`, `at 6pm`, "
+    "`tomorrow at 9:30`, `friday at 18:00` or `every weekday at 7:30`."
 )
 
 Render = Callable[[AsyncSession, User, datetime, ZoneInfo], Awaitable[str | None]]
@@ -49,7 +49,7 @@ class SlashCommands:
             return await run(CompleteGoal(goal_id=goal_id), s, u)
 
         reply = await self._run(discord_id, f"/done {goal_id}", render)
-        return reply or f"I don't see goal #{goal_id}."
+        return reply or f"I can't find goal #{goal_id}, sir."
 
     async def remind(self, discord_id: int, when: str, what: str) -> str:
         async def render(s: AsyncSession, u: User, now: datetime, tz: ZoneInfo) -> str | None:
