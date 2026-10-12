@@ -73,6 +73,9 @@ CI runs the same checks on every PR, plus a build of the runtime image.
 | `WEEKLY_SUMMARY_DELAY` | Minutes after the Sunday evening check-in for the weekly summary. Default `30` |
 | `GITHUB_REPO` | Optional. Like `you/freddy`, so the boot message can list what changed |
 | `GITHUB_TOKEN` | Optional. Fine-grained token with Contents read on that repo. Only needed while it's private |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional. Desktop app OAuth client, see Google Calendar setup |
+| `GOOGLE_REFRESH_TOKEN` | Optional. Printed by the auth script. Calendar stays off unless all three are set |
+| `GOOGLE_CALENDAR_ID` | Defaults to `primary` |
 
 ## Boot message
 
@@ -115,6 +118,33 @@ This runs the official, unmodified Claude Code just for me. Anthropic's terms do
 4. Open the install link and add it to your server.
 5. Turn on Developer Mode in Discord and copy the server, channel and your user id.
 
+## Google Calendar setup
+
+Optional. Freddy talks to your calendar as you, through an OAuth refresh token. It asks for two scopes: `calendar.events` and `calendar.freebusy`.
+
+**Google Cloud console**
+1. **Menu** > **IAM & Admin** > **Create a Project**. Give it a name and click **Create**.
+2. Enable the Google Calendar API for that project: https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com
+3. **Google Auth platform** > **Branding**, click **Get Started**:
+   - App name and user support email, **Next**
+   - Audience: **External**, **Next**
+   - Contact email, **Next**
+   - Agree to the User Data Policy, **Continue**, **Create**
+4. **Data Access** > **Add or Remove Scopes**: add `.../auth/calendar.events` and `.../auth/calendar.freebusy`, **Save**.
+5. **Audience**: under Publishing status click **Publish app**, so it's **In production**. In Testing, Google kills the refresh token after 7 days.
+6. **Clients** > **Create Client**, Application type **Desktop app**, any name, **Create**. Copy the client id and secret right away, Google only shows the full secret once.
+
+**Get the refresh token** (on your machine, needs Docker)
+```bash
+docker compose --profile dev build freddy-dev
+docker compose --profile dev run --rm -p 127.0.0.1:8085:8085 freddy-dev python -m freddy.auth.google
+```
+Paste the client id and secret, open the url it prints, sign in and allow both permissions. The app isn't verified, so Google shows a warning first; it's your own app, so continue past it. The script prints `GOOGLE_REFRESH_TOKEN=...`.
+
+Put the three values in `.env` (or Coolify) and restart. On boot Freddy logs `google.calendar_ready` with the calendar's timezone, and warns if it doesn't match `TIMEZONE`.
+
+If the token ever stops working (revoked, or unused for 6 months), Freddy says so in the channel once. Run the script again and swap the token.
+
 ## Deploy
 
 I run it on Coolify.
@@ -124,7 +154,7 @@ I run it on Coolify.
 3. Give the app a domain so the laptop can reach `/bridge` and `/mcp/`:
    - At your DNS provider, point an `A` record for the domain at the Coolify server. Ports 80 and 443 need to reach the server for the certificate.
    - In Coolify, open the app, then **Domains**, then **Add domain**. Protocol `https`, your domain, port `8080`.
-4. Set the env vars above. Generate `BRIDGE_TOKEN` and `MCP_TOKEN` (see Laptop bridge). `ANTHROPIC_API_KEY` is optional. Add `GITHUB_REPO` and `GITHUB_TOKEN` if you want commit titles in the boot message.
+4. Set the env vars above. Generate `BRIDGE_TOKEN` and `MCP_TOKEN` (see Laptop bridge). `ANTHROPIC_API_KEY` is optional. Add `GITHUB_REPO` and `GITHUB_TOKEN` if you want commit titles in the boot message, and the `GOOGLE_*` vars for the calendar.
 5. In **Advanced**, under **Build**, set **Source commit availability** to **Available during build**. That bakes the commit into the image so the boot message knows what changed.
 6. Deploy, and redeploy after any domain change.
 

@@ -64,6 +64,10 @@ LINES: dict[str, tuple[str, ...]] = {
         "Reporting for duty, sir.",
         "Back on duty, sir. Did you miss me?",
     ),
+    "calendar_expired": (
+        "My calendar access has expired, sir. Kindly re-run the Google auth script.",
+        "Google has shown me the door, sir. The calendar needs the auth script run again.",
+    ),
     "week_sweep": (
         "Clean sweep 🎉 I've taken the liberty of being impressed, sir.",
         "Clean sweep 🎉 Frankly, sir, the bar is now unreasonably high.",
