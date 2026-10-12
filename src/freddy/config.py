@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     google_client_secret: SecretStr | None = None
     google_refresh_token: SecretStr | None = None
     google_calendar_id: str = "primary"
+    event_ping_minutes: int = 10
 
     log_level: str = "INFO"
     log_json: bool = False
