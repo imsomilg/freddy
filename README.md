@@ -17,8 +17,6 @@ Just talk to it in plain English:
 
 Every morning and evening it checks in with your goals for the day. Sunday evening it sends a weekly summary: goals done vs set, streak and best day.
 
-Freddy talks like a butler and calls me sir. Its lines rotate from pools in `src/freddy/persona.py`, so it doesn't repeat itself and no tokens are spent on it. Swap them for your own. Every time it boots it says hi and tells me what changed since the last deploy.
-
 Google Calendar is coming next.
 
 ## How it works
@@ -80,7 +78,7 @@ CI runs the same checks on every PR, plus a build of the runtime image.
 
 Every time Freddy starts it posts a greeting in the channel. If the commit changed since the last boot it says what's new, otherwise it says it was just a restart.
 
-It reads the commit from `SOURCE_COMMIT`. On Coolify, set Advanced > Build > Source commit availability to "Available during build" so it gets baked into the image. Without `GITHUB_REPO` it shows the short sha instead of the commit titles.
+It reads the commit from `SOURCE_COMMIT`, which Coolify passes in at build time (see Deploy, step 5). Without `GITHUB_REPO` it shows the short sha instead of the commit titles.
 
 ## Laptop bridge
 
@@ -126,7 +124,8 @@ I run it on Coolify.
 3. Give the app a domain so the laptop can reach `/bridge` and `/mcp/`:
    - At your DNS provider, point an `A` record for the domain at the Coolify server. Ports 80 and 443 need to reach the server for the certificate.
    - In Coolify, open the app, then **Domains**, then **Add domain**. Protocol `https`, your domain, port `8080`.
-4. Set the env vars above. Generate `BRIDGE_TOKEN` and `MCP_TOKEN` (see Laptop bridge). `ANTHROPIC_API_KEY` is optional.
-5. Deploy, and redeploy after any domain change.
+4. Set the env vars above. Generate `BRIDGE_TOKEN` and `MCP_TOKEN` (see Laptop bridge). `ANTHROPIC_API_KEY` is optional. Add `GITHUB_REPO` and `GITHUB_TOKEN` if you want commit titles in the boot message.
+5. In **Advanced**, under **Build**, set **Source commit availability** to **Available during build**. That bakes the commit into the image so the boot message knows what changed.
+6. Deploy, and redeploy after any domain change.
 
 Keep it to one replica, Discord only allows one connection per bot.
