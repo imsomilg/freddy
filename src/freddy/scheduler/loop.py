@@ -10,7 +10,7 @@ from freddy.assistant.history import ConversationStore
 from freddy.assistant.service import UserLocks
 from freddy.channels.base import Channel
 from freddy.db.models import GoalStatus, MessageSource, Reminder, ReminderKind, User
-from freddy.domain.goals import GoalService, format_goal_list
+from freddy.domain.goals import GoalService, Progress, format_goal_list
 from freddy.domain.timeutil import format_local, next_cron_run, utcnow
 
 log = structlog.get_logger()
@@ -39,6 +39,24 @@ async def render_checkin(session: AsyncSession, user: User, kind: ReminderKind) 
     parts.append(f"Still open:\n{format_goal_list(open_, today)}")
     parts.append("What got done?")
     return "\n".join(parts)
+
+
+def render_weekly(progress: Progress) -> str | None:
+    if progress.total == 0:
+        return None
+    pct = round(100 * progress.done / progress.total)
+    lines = [f"Week's wrap! You got {progress.done} of {progress.total} goals done ({pct}%)."]
+    best = max(progress.per_day, key=lambda d: (d[1], d[0]))
+    if best[1] > 0:
+        lines.append(f"Best day: {best[0]:%A} with {best[1]} done.")
+    if progress.streak > 1:
+        lines.append(f"Streak: {progress.streak} days 🔥")
+    lines.append(" · ".join(f"{d:%a} {done}/{total}" for d, done, total in progress.per_day))
+    if progress.done == progress.total:
+        lines.append("Clean sweep 🎉 Same again next week?")
+    else:
+        lines.append("What are we going for next week?")
+    return "\n".join(lines)
 
 
 class Scheduler:
@@ -130,6 +148,8 @@ class Scheduler:
             return text
         if late > SKIP_CHECKIN_AFTER:
             return None
+        if reminder.kind == ReminderKind.WEEKLY_SUMMARY:
+            return render_weekly(await GoalService(session, user).progress(7))
         return await render_checkin(session, user, reminder.kind)
 
     @staticmethod
@@ -138,4 +158,6 @@ class Scheduler:
             return "morning check-in"
         if reminder.kind == ReminderKind.CHECKIN_EVENING:
             return "evening check-in"
+        if reminder.kind == ReminderKind.WEEKLY_SUMMARY:
+            return "weekly summary"
         return f"reminder #{reminder.id}"

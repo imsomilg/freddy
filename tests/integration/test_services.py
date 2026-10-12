@@ -13,7 +13,18 @@ from freddy.fastpath.router import try_fastpath
 
 async def test_owner_gets_checkins(session: AsyncSession, user: User) -> None:
     kinds = set(await session.scalars(select(Reminder.kind).where(Reminder.user_id == user.id)))
-    assert kinds == {ReminderKind.CHECKIN_MORNING, ReminderKind.CHECKIN_EVENING}
+    assert kinds == {
+        ReminderKind.CHECKIN_MORNING,
+        ReminderKind.CHECKIN_EVENING,
+        ReminderKind.WEEKLY_SUMMARY,
+    }
+    weekly = await session.scalar(
+        select(Reminder).where(
+            Reminder.user_id == user.id, Reminder.kind == ReminderKind.WEEKLY_SUMMARY
+        )
+    )
+    assert weekly is not None
+    assert weekly.cron == "30 21 * * 0"
 
 
 async def test_goal_lifecycle(session: AsyncSession, user: User) -> None:

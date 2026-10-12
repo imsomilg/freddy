@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     timezone: str = "UTC"
     morning_checkin: time = time(8, 0)
     evening_checkin: time = time(21, 0)
+    weekly_summary_delay: int = 30
 
     log_level: str = "INFO"
     log_json: bool = False
