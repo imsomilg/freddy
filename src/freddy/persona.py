@@ -68,6 +68,26 @@ LINES: dict[str, tuple[str, ...]] = {
         "My calendar access has expired, sir. Kindly re-run the Google auth script.",
         "Google has shown me the door, sir. The calendar needs the auth script run again.",
     ),
+    "calendar_not_found": (
+        "I couldn't find that event, sir.",
+        "That event seems to have wandered off, sir.",
+    ),
+    "calendar_bad_request": (
+        "Google didn't care for that request, sir.",
+        "Google turned that one down, sir.",
+    ),
+    "calendar_organizer_only": (
+        "Only the organizer can change that one, sir.",
+        "That's the organizer's call, sir, not ours.",
+    ),
+    "calendar_rate_limited": (
+        "Google asks me to slow down, sir. Try again in a minute.",
+        "I've been told to wait my turn, sir. A minute, perhaps.",
+    ),
+    "calendar_down": (
+        "Google Calendar is having a moment, sir. Try again shortly.",
+        "The calendar isn't answering, sir. Shall we try again shortly?",
+    ),
     "week_sweep": (
         "Clean sweep 🎉 I've taken the liberty of being impressed, sir.",
         "Clean sweep 🎉 Frankly, sir, the bar is now unreasonably high.",
