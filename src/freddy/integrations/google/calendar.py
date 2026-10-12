@@ -43,6 +43,8 @@ class CalendarEvent:
     description: str | None = None
     attendees: tuple[str, ...] = ()
     link: str | None = None
+    transparent: bool = False
+    declined: bool = False
 
 
 def _parse_when(raw: dict[str, Any], tz: ZoneInfo) -> When:
@@ -62,6 +64,11 @@ def _event(raw: dict[str, Any], tz: ZoneInfo) -> CalendarEvent:
         description=raw.get("description"),
         attendees=tuple(a["email"] for a in raw.get("attendees", ()) if "email" in a),
         link=raw.get("htmlLink"),
+        transparent=raw.get("transparency") == "transparent",
+        declined=any(
+            a.get("self") and a.get("responseStatus") == "declined"
+            for a in raw.get("attendees", ())
+        ),
     )
 
 
@@ -175,6 +182,14 @@ class CalendarService:
             return items
 
         return [_event(raw, self._tz) for raw in await self._run("list", call)]
+
+    async def busy(self, start: datetime, end: datetime) -> list[tuple[When, When]]:
+        """Blocks that take my time. Skips events marked Available and ones I declined.
+
+        Freebusy can't tell all-day events from timed ones, so this reads events.list instead.
+        """
+        events = await self.list_events(start, end)
+        return [(e.start, e.end) for e in events if not e.transparent and not e.declined]
 
     async def create_event(
         self,

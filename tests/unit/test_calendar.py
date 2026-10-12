@@ -97,6 +97,25 @@ async def test_list_pages_and_parses_timed_and_all_day() -> None:
     assert (holiday.start, holiday.end) == (date(2026, 10, 14), date(2026, 10, 15))
 
 
+async def test_busy_skips_available_and_declined() -> None:
+    available = {**TIMED, "id": "free1", "transparency": "transparent"}
+    declined = {
+        **TIMED,
+        "id": "no1",
+        "attendees": [{"email": "me@example.com", "self": True, "responseStatus": "declined"}],
+    }
+    maybe = {
+        **TIMED,
+        "id": "maybe1",
+        "attendees": [{"email": "me@example.com", "self": True, "responseStatus": "tentative"}],
+    }
+    svc, _ = service([ok({"items": [TIMED, available, declined, maybe, ALL_DAY]})])
+    busy = await svc.busy(START, START + timedelta(days=2))
+
+    lunch = (datetime(2026, 10, 13, 9, 0, tzinfo=TZ), datetime(2026, 10, 13, 10, 0, tzinfo=TZ))
+    assert busy == [lunch, lunch, (date(2026, 10, 14), date(2026, 10, 15))]
+
+
 async def test_list_rejects_naive_times() -> None:
     svc, _ = service([])
     with pytest.raises(ValueError, match="timezone"):
