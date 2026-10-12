@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     evening_checkin: time = time(21, 0)
     weekly_summary_delay: int = 30
 
+    source_commit: str | None = None
+    github_repo: str | None = None
+    github_token: SecretStr | None = None
+
     log_level: str = "INFO"
     log_json: bool = False
     health_port: int = 8080
@@ -42,6 +46,11 @@ class Settings(BaseSettings):
             if v.startswith(prefix):
                 return "postgresql+asyncpg://" + v.removeprefix(prefix)
         return v
+
+    @field_validator("source_commit", "github_repo")
+    @classmethod
+    def _blank_is_none(cls, v: str | None) -> str | None:
+        return v.strip() or None if v else None
 
     @field_validator("timezone")
     @classmethod

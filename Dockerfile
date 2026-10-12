@@ -50,3 +50,5 @@ USER freddy
 CMD ["pytest"]
 
 FROM app AS runtime
+ARG SOURCE_COMMIT
+ENV SOURCE_COMMIT=${SOURCE_COMMIT}

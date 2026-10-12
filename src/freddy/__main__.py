@@ -7,6 +7,7 @@ import structlog
 from freddy.assistant.agent import Agent
 from freddy.assistant.commands import SlashCommands
 from freddy.assistant.service import Assistant, UserLocks
+from freddy.boot import announce_boot
 from freddy.bridge.hub import BridgeHub
 from freddy.channels.discord_adapter import DiscordChannel
 from freddy.config import get_settings
@@ -69,6 +70,15 @@ async def main() -> None:
         owner_id=settings.owner_discord_id,
         handler=assistant.handle,
         commands=SlashCommands(sessionmaker, locks),
+        on_first_ready=lambda: announce_boot(
+            sessionmaker,
+            channel,
+            locks,
+            settings.owner_discord_id,
+            settings.source_commit,
+            settings.github_repo,
+            settings.github_token.get_secret_value() if settings.github_token else None,
+        ),
     )
     scheduler = Scheduler(sessionmaker, channel, locks)
     web = make_server(build_app(channel, hub, mcp), settings.health_port)
@@ -84,6 +94,7 @@ async def main() -> None:
         api_agent=agent is not None,
         bridge=hub is not None,
         mcp=mcp is not None,
+        commit=settings.source_commit,
     )
     tasks = [
         asyncio.create_task(channel.start(), name="discord"),

@@ -1,5 +1,6 @@
-from collections.abc import Awaitable
-from typing import Literal
+import asyncio
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any, Literal
 
 import discord
 import structlog
@@ -23,6 +24,7 @@ class DiscordChannel:
         owner_id: int,
         handler: MessageHandler,
         commands: SlashCommands | None = None,
+        on_first_ready: Callable[[], Coroutine[Any, Any, None]] | None = None,
     ) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
@@ -37,6 +39,8 @@ class DiscordChannel:
         self.tree = app_commands.CommandTree(self.client)
         self.tree.interaction_check = self._interaction_allowed  # type: ignore[method-assign]
         self.commands = commands
+        self.on_first_ready = on_first_ready
+        self._first_ready_task: asyncio.Task[None] | None = None
         if commands is not None:
             self._register(commands)
 
@@ -58,6 +62,8 @@ class DiscordChannel:
         log.info("discord.ready", user=str(self.client.user), guilds=len(self.client.guilds))
         if self.client.get_guild(self.guild_id) is None:
             log.error("discord.guild_missing", guild_id=self.guild_id)
+        if self.on_first_ready is not None and self._first_ready_task is None:
+            self._first_ready_task = asyncio.create_task(self.on_first_ready())
 
     def _allowed(self, message: discord.Message) -> bool:
         return (
@@ -95,7 +101,7 @@ class DiscordChannel:
             return True
         if interaction.type is discord.InteractionType.application_command:
             await interaction.response.send_message(
-                "I only answer my owner, in the freddy channel.", ephemeral=True
+                "I serve only my owner, and only in the freddy channel.", ephemeral=True
             )
         return False
 

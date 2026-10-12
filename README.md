@@ -71,6 +71,14 @@ CI runs the same checks on every PR, plus a build of the runtime image.
 | `TIMEZONE` | Like `Asia/Kolkata` |
 | `MORNING_CHECKIN` / `EVENING_CHECKIN` | Defaults `08:00` and `21:00` |
 | `WEEKLY_SUMMARY_DELAY` | Minutes after the Sunday evening check-in for the weekly summary. Default `30` |
+| `GITHUB_REPO` | Optional. Like `you/freddy`, so the boot message can list what changed |
+| `GITHUB_TOKEN` | Optional. Fine-grained token with Contents read on that repo. Only needed while it's private |
+
+## Boot message
+
+Every time Freddy starts it posts a greeting in the channel. If the commit changed since the last boot it says what's new, otherwise it says it was just a restart.
+
+It reads the commit from `SOURCE_COMMIT`, which Coolify passes in at build time (see Deploy, step 5). Without `GITHUB_REPO` it shows the short sha instead of the commit titles.
 
 ## Laptop bridge
 
@@ -116,7 +124,8 @@ I run it on Coolify.
 3. Give the app a domain so the laptop can reach `/bridge` and `/mcp/`:
    - At your DNS provider, point an `A` record for the domain at the Coolify server. Ports 80 and 443 need to reach the server for the certificate.
    - In Coolify, open the app, then **Domains**, then **Add domain**. Protocol `https`, your domain, port `8080`.
-4. Set the env vars above. Generate `BRIDGE_TOKEN` and `MCP_TOKEN` (see Laptop bridge). `ANTHROPIC_API_KEY` is optional.
-5. Deploy, and redeploy after any domain change.
+4. Set the env vars above. Generate `BRIDGE_TOKEN` and `MCP_TOKEN` (see Laptop bridge). `ANTHROPIC_API_KEY` is optional. Add `GITHUB_REPO` and `GITHUB_TOKEN` if you want commit titles in the boot message.
+5. In **Advanced**, under **Build**, set **Source commit availability** to **Available during build**. That bakes the commit into the image so the boot message knows what changed.
+6. Deploy, and redeploy after any domain change.
 
 Keep it to one replica, Discord only allows one connection per bot.
